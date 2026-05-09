@@ -255,17 +255,17 @@ export class SpaceshipAsteroidsSim {
           addPixel(px, x, y, layer.color, a);
         } else if (layer.shape === 1) {
           addPixel(px, x, y, layer.color, a);
-          addPixel(px, x - 1, y, layer.color, a * 0.28);
+          addPixel(px, x + 1, y, layer.color, a * 0.28);
         } else if (layer.shape === 2) {
           addPixel(px, x, y, layer.color, a);
-          addPixel(px, x - 1, y, layer.color, a * 0.55);
-          addPixel(px, x - 2, y, layer.color, a * 0.20);
+          addPixel(px, x + 1, y, layer.color, a * 0.55);
+          addPixel(px, x + 2, y, layer.color, a * 0.20);
           if ((lane & 3) === 0) addPixel(px, x, y - 1, [210, 235, 255], a * 0.32);
         } else {
           addPixel(px, x, y, layer.color, a);
-          addPixel(px, x - 1, y, layer.color, a * 0.72);
-          addPixel(px, x - 2, y, layer.color, a * 0.48);
-          addPixel(px, x - 3, y, layer.color, a * 0.22);
+          addPixel(px, x + 1, y, layer.color, a * 0.72);
+          addPixel(px, x + 2, y, layer.color, a * 0.48);
+          addPixel(px, x + 3, y, layer.color, a * 0.22);
           if ((lane & 1) === 0) addPixel(px, x, y + 1, [140, 220, 255], a * 0.36);
         }
       }
