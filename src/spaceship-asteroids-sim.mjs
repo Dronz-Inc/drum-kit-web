@@ -125,21 +125,21 @@ export class SpaceshipAsteroidsSim {
     const phase = ((nowMs - this.startMs - FREE_TARGET_DELAY_MS) % FREE_BEAT_MS + FREE_BEAT_MS) % FREE_BEAT_MS;
     return Math.max(0, 1 - Math.min(phase, FREE_BEAT_MS - phase) / 120);
   }
-  breakApart(x, y, color, nowMs, power = 3, ttl = 720, seed = this.nextId) {
+  breakApart(x, y, color, nowMs, power = 3, ttl = 720, seed = this.nextId, { perfect = false } = {}) {
     const fragments = [];
-    const count = 5 + power * 2;
+    const count = 5 + power * 2 + (perfect ? 8 : 0);
     for (let i = 0; i < count; i++) {
       const angle = seededUnit(seed, i) * Math.PI * 2;
       const speed = 0.012 + seededUnit(seed + 5, i) * (0.020 + power * 0.004);
       fragments.push({
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        size: 2 + Math.floor(seededUnit(seed + 11, i) * Math.min(3, 1 + power)),
+        size: 2 + Math.floor(seededUnit(seed + 11, i) * Math.min(3 + (perfect ? 1 : 0), 1 + power)),
         spin: seededUnit(seed + 17, i) > 0.5 ? 1 : -1,
         shade: 0.55 + seededUnit(seed + 23, i) * 0.55
       });
     }
-    this.explosions.push({ x, y, color, at: nowMs, ttl, power, fragments });
+    this.explosions.push({ x, y, color, at: nowMs, ttl, power, fragments, perfect });
   }
   spawnAsteroid(nowMs, forcedSize = null) {
     const seq = this.nextFreeSeq++;
@@ -275,8 +275,13 @@ export class SpaceshipAsteroidsSim {
       return false;
     }
     const dt = nowMs - target.targetMs;
+    const timingScore = Math.abs(dt);
+    const perfectBeat = timingScore <= 110;
     target.hp--;
-    this.breakApart(target.x, target.y, color, nowMs, target.hp > 0 ? 1 : 3 + Math.floor(this.combo / 3), target.hp > 0 ? 360 : 680, target.id);
+    const basePower = target.hp > 0 ? 1 : 3 + Math.floor(this.combo / 3);
+    const power = basePower + (perfectBeat ? 2 : 0);
+    const ttl = target.hp > 0 ? 360 : (perfectBeat ? 860 : 680);
+    this.breakApart(target.x, target.y, color, nowMs, power, ttl, target.id, { perfect: perfectBeat });
     if (target.hp > 0) {
       target.r = Math.max(2, target.r - 1);
       target.x += 3;
@@ -289,10 +294,10 @@ export class SpaceshipAsteroidsSim {
     this.combo++;
     this.updateLevel();
     const pad = BY_TRD_NOTE.get(note);
-    let feel = "on the beat";
+    let feel = perfectBeat ? "PERFECT BEAT BLAST" : "on the beat";
     if (dt < -FREE_EARLY_MS) feel = "early blast — next one on the pulse";
     else if (dt > FREE_LATE_MS) feel = "late blast — try the next pulse";
-    else if (Math.abs(dt) >= 100) feel = dt < 0 ? "nice anticipation" : "good recovery";
+    else if (!perfectBeat) feel = dt < 0 ? "nice anticipation" : "good recovery";
     this.lastJudgement = `${feel} ${pad?.label || note}! score ${this.score} combo x${this.combo}`;
     return true;
   }
@@ -439,8 +444,19 @@ export class SpaceshipAsteroidsSim {
       const life = 1 - p;
       if (age < 110) {
         const pop = 1 - age / 110;
-        fillCircle(px, e.x, e.y, 4 + Math.round(e.power * 0.8), [255, 135, 40], pop);
-        fillCircle(px, e.x, e.y, 2 + Math.round(e.power * 0.45), [255, 245, 220], pop * 0.7);
+        fillCircle(px, e.x, e.y, 4 + Math.round(e.power * 0.8), e.perfect ? [255, 245, 120] : [255, 135, 40], pop);
+        fillCircle(px, e.x, e.y, 2 + Math.round(e.power * 0.45), [255, 245, 220], pop * 0.78);
+      }
+      if (e.perfect && age < 360) {
+        const q = age / 360;
+        const wave = 3 + q * (9 + e.power * 2);
+        const a = (1 - q) * 0.9;
+        line(px, e.x - wave, e.y, e.x - wave * 0.35, e.y - wave * 0.72, [255, 250, 160], a);
+        line(px, e.x - wave * 0.35, e.y - wave * 0.72, e.x + wave * 0.55, e.y - wave * 0.52, [130, 235, 255], a * 0.9);
+        line(px, e.x + wave * 0.55, e.y - wave * 0.52, e.x + wave, e.y, [255, 250, 160], a);
+        line(px, e.x + wave, e.y, e.x + wave * 0.35, e.y + wave * 0.72, [130, 235, 255], a * 0.9);
+        line(px, e.x + wave * 0.35, e.y + wave * 0.72, e.x - wave * 0.55, e.y + wave * 0.52, [255, 250, 160], a);
+        line(px, e.x - wave * 0.55, e.y + wave * 0.52, e.x - wave, e.y, [130, 235, 255], a * 0.9);
       }
       for (let i = 0; i < (e.fragments?.length || 0); i++) {
         const f = e.fragments[i];
