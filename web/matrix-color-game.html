@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mr Roboto Rhythm Drum Game — Web Simulator</title>
+<style>
+:root{color-scheme:dark;--bg:#070912;--panel:#121724;--text:#e8f0ff;--muted:#8da0be;--accent:#65e4ff}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% 0,#16223c,#070912 62%);color:var(--text);font:14px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif}header{padding:14px 16px;border-bottom:1px solid #22304b;background:#101522d8;display:flex;gap:12px;align-items:center;flex-wrap:wrap}h1{font-size:16px;margin:0}button,select{font:inherit;border:1px solid #2b3a59;border-radius:8px;background:#182137;color:var(--text);padding:7px 10px}button.primary{background:var(--accent);color:#031018;font-weight:700}.pill{border:1px solid #2b3a59;border-radius:999px;padding:5px 9px;color:var(--muted)}main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;padding:14px}@media(max-width:900px){main{grid-template-columns:1fr}}section{background:#101522d8;border:1px solid #22304b;border-radius:14px;padding:12px}.matrix{width:min(100%,768px);aspect-ratio:2/1;display:grid;grid-template-columns:repeat(64,1fr);grid-template-rows:repeat(32,1fr);gap:1px;padding:6px;background:#02030a;border-radius:12px;box-shadow:0 0 40px #000 inset}.px{border-radius:50%;background:#00030a}.pads{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.pad{min-height:52px;text-align:left}.log{font:12px ui-monospace,Menlo,monospace;white-space:pre-wrap;max-height:300px;overflow:auto;color:#b8c7e6}.stat{display:grid;grid-template-columns:1fr auto;gap:4px;color:var(--muted)}.robot{color:#ffd15e}</style>
+</head>
+<body>
+<header>
+<h1>🤖 Mr Roboto Rhythm Drum Game</h1>
+<button id="resetGame" class="primary">Start / Reset Web Game</button>
+<button id="start">Start Web MIDI</button>
+<select id="input" disabled><option>No input</option></select>
+<button id="demo">Demo burst</button>
+<button id="serial">Connect MatrixPortal Serial</button>
+<span id="state" class="pill">offline simulator ready</span>
+</header>
+<main>
+<section>
+<div id="matrix" class="matrix" aria-label="64 by 32 simulated LED matrix"></div>
+<p class="robot">Web-first version of the Taiko-style MatrixPortal game: bars move toward Mr Roboto; correct color + timing explodes; any hit makes the robot swing.</p>
+</section>
+<section>
+<h2>Pad triggers</h2>
+<div id="pads" class="pads"></div>
+<h2>Latency stats</h2>
+<div id="stats"></div>
+<h2>Log</h2>
+<div id="log" class="log"></div>
+</section>
+</main>
+<script type="module">
+import { TRD_PADS, parseMidiMessage } from "../src/trd-mapping.mjs";
+import { RhythmGameSim } from "../src/rhythm-game-sim.mjs";
+import { encodeHit, encodeStart } from "../src/matrix-protocol.mjs";
+
+const sim = new RhythmGameSim();
+const matrixEl = document.getElementById('matrix');
+const padsEl = document.getElementById('pads');
+const logEl = document.getElementById('log');
+const statsEl = document.getElementById('stats');
+const stateEl = document.getElementById('state');
+const inputEl = document.getElementById('input');
+const px = [];
+const receiveLatencies = [];
+let midiAccess, currentInput, serialPort, serialWriter, seq = 0, msgCount = 0, serialWrites = 0, gameStarted = false;
+
+for (let i=0;i<64*32;i++){const d=document.createElement('div');d.className='px';matrixEl.appendChild(d);px.push(d)}
+for (const pad of TRD_PADS) {
+  const b = document.createElement('button'); b.className='pad'; b.innerHTML=`<b>${pad.label}</b><br>TRD ${pad.trdNote} / GM ${pad.gmNote}`;
+  b.style.borderColor=`rgb(${pad.color.join(',')})`;
+  b.onclick=()=>triggerPad(pad.trdNote, performance.now(), 100, 'manual');
+  padsEl.appendChild(b);
+}
+function log(s){logEl.textContent = `${new Date().toLocaleTimeString()} ${s}\n` + logEl.textContent.slice(0,4000)}
+async function triggerPad(note, t, velocity, source){
+  await maybeStartGame();
+  const scored = sim.hit(note, t, velocity);
+  const pkt = encodeHit({note, velocity, sequence: seq++});
+  if (serialWriter) {
+    try { await serialWriter.write(pkt); serialWrites++; }
+    catch (err) { log(`serial write failed: ${err.message}`); }
+  }
+  log(`${source} note=${note} ${scored ? '✅ scored' : 'robot swing'} packet=${Array.from(pkt).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`);
+  stateEl.textContent = `L${sim.level} combo x${sim.combo} — ${sim.lastJudgement}`;
+}
+async function maybeStartGame(){
+  if (!currentInput || !serialWriter || gameStarted) return;
+  await serialWriter.write(encodeStart({sequence: seq++}));
+  serialWrites++;
+  gameStarted = true;
+  stateEl.textContent=`game started: ${currentInput.name} + MatrixPortal`;
+  log('game start sent to MatrixPortal');
+}
+function render(){
+  const frame = sim.frame(performance.now());
+  let i=0; for (const row of frame) for (const [r,g,b] of row) px[i++].style.backgroundColor=`rgb(${r},${g},${b})`;
+  requestAnimationFrame(render);
+}
+render();
+function updateStats(){
+  const sorted=[...receiveLatencies].sort((a,b)=>a-b);
+  const pct=p=>sorted.length?sorted[Math.min(sorted.length-1,Math.floor((sorted.length-1)*p))]:0;
+  statsEl.innerHTML=`<div class=stat><span>level</span><b>${sim.level}</b></div><div class=stat><span>combo</span><b>x${sim.combo}</b></div><div class=stat><span>MIDI messages</span><b>${msgCount}</b></div><div class=stat><span>serial writes</span><b>${serialWrites}</b></div><div class=stat><span>receive median</span><b>${pct(.5).toFixed(2)} ms</b></div><div class=stat><span>receive p95</span><b>${pct(.95).toFixed(2)} ms</b></div>`;
+}
+setInterval(updateStats, 300);
+
+document.getElementById('resetGame').onclick=()=>{
+  sim.reset(performance.now());
+  gameStarted = false;
+  maybeStartGame();
+  stateEl.textContent='web rhythm game reset — hit snare on beats 1 and 3';
+  log('web rhythm game reset');
+};
+
+document.getElementById('demo').onclick=()=>{
+  sim.reset(performance.now());
+  const pattern=[26,26,26,26,26,24,26,24,26,24,26,24];
+  pattern.forEach((note,i)=>setTimeout(()=>triggerPad(note,performance.now(),100,'demo'),2400+i*1200));
+};
+
+document.getElementById('serial').onclick=async()=>{
+  if (!('serial' in navigator)) { stateEl.textContent='Web Serial unsupported; use Chrome/Edge'; return; }
+  serialPort = await navigator.serial.requestPort();
+  await serialPort.open({ baudRate: 115200 });
+  serialWriter = serialPort.writable.getWriter();
+  gameStarted = false;
+  stateEl.textContent='MatrixPortal serial connected';
+  await maybeStartGame();
+};
+
+document.getElementById('start').onclick=async()=>{
+  if (!navigator.requestMIDIAccess) { stateEl.textContent='Web MIDI unsupported; use Chrome/Edge'; return; }
+  midiAccess = await navigator.requestMIDIAccess({sysex:false});
+  inputEl.disabled=false; inputEl.innerHTML='<option value="">Select input…</option>';
+  for (const inp of midiAccess.inputs.values()) inputEl.appendChild(new Option(inp.name, inp.id));
+  const preferred=[...midiAccess.inputs.values()].find(i=>/trd|midi/i.test(i.name));
+  if (preferred) { inputEl.value=preferred.id; attach(preferred.id); }
+  if (!currentInput) stateEl.textContent='MIDI ready';
+};
+inputEl.onchange=()=>attach(inputEl.value);
+function attach(id){
+  if(currentInput) currentInput.onmidimessage=null;
+  currentInput=midiAccess.inputs.get(id); if(!currentInput) return;
+  currentInput.onmidimessage=(ev)=>{
+    msgCount++;
+    receiveLatencies.push(Math.max(0, performance.now() - ev.timeStamp));
+    if (receiveLatencies.length>500) receiveLatencies.shift();
+    const parsed=parseMidiMessage(ev.data);
+    if(parsed.kind==='note-on') triggerPad(parsed.note, performance.now(), parsed.velocity, 'midi');
+  };
+  stateEl.textContent=`connected: ${currentInput.name}`;
+  maybeStartGame();
+}
+</script>
+</body>
+</html>
