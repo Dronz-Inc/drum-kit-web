@@ -19,7 +19,7 @@
 <main>
 <section>
 <div id="matrix" class="matrix" aria-label="64 by 32 simulated LED matrix"></div>
-<p class="note">Free mode: shoot matching drum-color asteroids. Lesson modes: asteroids arrive on the beat line — hit the matching drum when they touch it.</p>
+<p class="note">Free mode now practices timing too: it starts with snare-only beat shots, then adds kick/snare, hi-hat, and fills. Lesson modes are stricter beat-line drills.</p>
 </section>
 <section>
 <div id="score" class="big">Score 0 · L1 · Combo x0</div>
@@ -49,7 +49,7 @@ const receiveLatencies = [];
 let midiAccess, currentInput, msgCount = 0;
 
 for (const lesson of LESSONS) lessonEl.appendChild(new Option(lesson.name, lesson.id));
-lessonEl.value = 'snare-stars';
+lessonEl.value = 'free';
 sim.reset(performance.now(), { lessonId: lessonEl.value });
 stateEl.textContent = sim.lesson.description;
 lessonEl.onchange = () => {

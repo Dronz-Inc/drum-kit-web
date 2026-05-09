@@ -10,6 +10,11 @@ const ASTEROID_START_X = 66;
 const LESSON_FIRST_TARGET_MS = 2400;
 const LESSON_EARLY_MS = 180;
 const LESSON_LATE_MS = 220;
+const FREE_BPM = 86;
+const FREE_BEAT_MS = 60000 / FREE_BPM;
+const FREE_TARGET_DELAY_MS = 600;
+const FREE_EARLY_MS = 220;
+const FREE_LATE_MS = 260;
 const ASTEROID_COLORS = [24, 26, 34, 37, 45, 39, 31, 35, 36];
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
@@ -32,12 +37,13 @@ function fillCircle(px, cx, cy, r, color, a = 1) {
 }
 function padColor(note) { return BY_TRD_NOTE.get(note)?.color || [255,255,255]; }
 function lerp(a, b, t) { return a + (b - a) * clamp(t, 0, 1); }
+function seededUnit(seed, n) { return (Math.sin(seed * 91.7 + n * 37.3) + 1) / 2; }
 
 export const LESSONS = Object.freeze([
   {
     id: "free",
     name: "Free Asteroids",
-    description: "Shoot matching-color asteroids in any rhythm.",
+    description: "Arcade mode with hidden drum timing: snare first, then kick/snare, then fills.",
     mode: "free"
   },
   {
@@ -82,6 +88,8 @@ export class SpaceshipAsteroidsSim {
     this.lessonStartMs = nowMs;
     this.nextLessonSeq = 0;
     this.lastSpawnMs = nowMs - 900;
+    this.nextFreeSeq = 0;
+    this.nextFreeTargetMs = nowMs + FREE_TARGET_DELAY_MS;
     this.asteroids = [];
     this.lasers = [];
     this.explosions = [];
@@ -93,20 +101,55 @@ export class SpaceshipAsteroidsSim {
     this.aimUntilMs = -9999;
     this.aimX = SHIP_X + 18;
     this.aimY = SHIP_Y;
-    this.lastJudgement = this.lessonMode ? `${this.lesson.name}: wait for the asteroid to touch the beat line` : "shoot matching color asteroids";
+    this.lastJudgement = this.lessonMode ? `${this.lesson.name}: wait for the asteroid to touch the beat line` : "Free Asteroids: shoot the color on the beat";
     if (this.lessonMode) this.ensureLessonAsteroids(nowMs);
     else this.spawnAsteroid(nowMs);
   }
   spawnDelay() { return Math.max(850, 1900 - this.level * 150); }
   maxAsteroids() { return Math.min(1 + Math.floor(this.level / 3), 4); }
   updateLevel() { this.level = 1 + Math.floor(this.score / 5); }
+  freeNoteForSeq(seq) {
+    if (this.score < 4) return 26; // Start with snare: one color, one pulse.
+    if (this.score < 10) return (seq & 1) ? 26 : 24; // Then kick/snare rock skeleton.
+    if (this.score < 18) return [24, 34, 26, 34][seq & 3]; // Add hi-hat timekeeping.
+    return [24, 34, 26, 34, 31, 35, 36, 37][seq & 7]; // Then fills/crash color variation.
+  }
+  freeLaneForNote(note) {
+    if (note === 24) return 21;
+    if (note === 26) return 15;
+    if (note === 34) return 9;
+    return 6 + ((this.nextFreeSeq * 7 + note) % 21);
+  }
+  beatPulse(nowMs) {
+    const phase = ((nowMs - this.startMs - FREE_TARGET_DELAY_MS) % FREE_BEAT_MS + FREE_BEAT_MS) % FREE_BEAT_MS;
+    return Math.max(0, 1 - Math.min(phase, FREE_BEAT_MS - phase) / 120);
+  }
+  breakApart(x, y, color, nowMs, power = 3, ttl = 720, seed = this.nextId) {
+    const fragments = [];
+    const count = 6 + power * 3;
+    for (let i = 0; i < count; i++) {
+      const angle = seededUnit(seed, i) * Math.PI * 2;
+      const speed = 0.012 + seededUnit(seed + 5, i) * (0.020 + power * 0.004);
+      fragments.push({
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        size: 1 + Math.floor(seededUnit(seed + 11, i) * Math.min(4, 1 + power)),
+        spin: seededUnit(seed + 17, i) > 0.5 ? 1 : -1,
+        shade: 0.55 + seededUnit(seed + 23, i) * 0.55
+      });
+    }
+    this.explosions.push({ x, y, color, at: nowMs, ttl, power, fragments });
+  }
   spawnAsteroid(nowMs, forcedSize = null) {
-    const note = ASTEROID_COLORS[(this.nextId + this.level + Math.floor(this.score / 2)) % ASTEROID_COLORS.length];
-    const big = forcedSize ?? (this.level >= 4 && this.nextId % 5 === 0);
+    const seq = this.nextFreeSeq++;
+    const note = this.freeNoteForSeq(seq);
+    const big = forcedSize ?? (this.score >= 14 && seq % 6 === 5);
     const hp = big ? 2 : 1;
-    const y = 6 + ((this.nextId * 7 + this.level * 3) % 21);
-    const speed = 0.006 + this.level * 0.0008;
-    this.asteroids.push({ id: this.nextId++, note, x: ASTEROID_START_X, y, r: big ? 4 : 3, hp, maxHp: hp, speed, born: nowMs });
+    const y = this.freeLaneForNote(note);
+    const targetMs = Math.max(this.nextFreeTargetMs, nowMs + FREE_TARGET_DELAY_MS);
+    const speed = 0.007 + this.level * 0.0006;
+    this.asteroids.push({ id: this.nextId++, note, x: ASTEROID_START_X, y, r: big ? 4 : 3, hp, maxHp: hp, speed, born: nowMs, targetMs, freeBeat: true });
+    this.nextFreeTargetMs = targetMs + FREE_BEAT_MS;
     this.lastSpawnMs = nowMs;
   }
 
@@ -148,7 +191,7 @@ export class SpaceshipAsteroidsSim {
       if (nowMs > a.targetMs + LESSON_LATE_MS) {
         this.combo = 0;
         this.lastJudgement = "miss — next one is coming";
-        this.explosions.push({ x: LESSON_TARGET_X, y: a.y, color: [255, 80, 40], at: nowMs, ttl: 420, power: 1 });
+        this.breakApart(LESSON_TARGET_X, a.y, [255, 80, 40], nowMs, 1, 420, a.id);
       } else {
         survivors.push(a);
       }
@@ -160,12 +203,12 @@ export class SpaceshipAsteroidsSim {
   update(nowMs) {
     if (this.lessonMode) { this.updateLessonAsteroids(nowMs); return; }
     this.updateLevel();
-    if (this.asteroids.length < this.maxAsteroids() && nowMs - this.lastSpawnMs > this.spawnDelay()) this.spawnAsteroid(nowMs);
+    while (this.asteroids.length < this.maxAsteroids() && nowMs >= this.nextFreeTargetMs - FREE_TARGET_DELAY_MS) this.spawnAsteroid(nowMs);
     for (const a of this.asteroids) a.x -= a.speed * Math.max(0, nowMs - (a.lastMs || nowMs));
     for (const a of this.asteroids) a.lastMs = nowMs;
     const survivors = [];
     for (const a of this.asteroids) {
-      if (a.x < SHIP_X + 3) { this.combo = 0; this.lastJudgement = "asteroid got through — combo reset"; this.explosions.push({ x: SHIP_X + 2, y: SHIP_Y, color: [255, 80, 40], at: nowMs, ttl: 500, power: 2 }); }
+      if (a.x < SHIP_X + 3) { this.combo = 0; this.lastJudgement = "asteroid got through — combo reset"; this.breakApart(SHIP_X + 2, SHIP_Y, [255, 80, 40], nowMs, 2, 500, a.id); }
       else survivors.push(a);
     }
     this.asteroids = survivors;
@@ -198,7 +241,7 @@ export class SpaceshipAsteroidsSim {
     this.score++;
     this.combo++;
     const power = Math.min(7, 2 + Math.floor(this.combo / 3));
-    this.explosions.push({ x: target.x, y: target.y, color, at: nowMs, ttl: 700, power });
+    this.breakApart(target.x, target.y, color, nowMs, power, 700, target.id);
     const pad = BY_TRD_NOTE.get(note);
     const feel = Math.abs(dt) < 85 ? "perfect" : "good";
     this.lastJudgement = `${feel} ${pad?.label || note}! combo x${this.combo}`;
@@ -209,28 +252,38 @@ export class SpaceshipAsteroidsSim {
     this.update(nowMs);
     const color = padColor(note);
     this.shipFlashMs = nowMs;
-    const candidates = this.asteroids.filter(a => a.note === note).sort((a,b) => a.x - b.x);
+    const nearestAny = [...this.asteroids].sort((a,b) => Math.abs((a.targetMs ?? 0) - nowMs) - Math.abs((b.targetMs ?? 0) - nowMs))[0];
+    const candidates = this.asteroids.filter(a => a.note === note).sort((a,b) => Math.abs((a.targetMs ?? 0) - nowMs) - Math.abs((b.targetMs ?? 0) - nowMs));
     const target = candidates[0];
-    const laserTarget = target ? { x: target.x, y: target.y } : { x: 63, y: SHIP_Y };
+    const laserTarget = target ? { x: target.x, y: target.y } : nearestAny ? { x: nearestAny.x, y: nearestAny.y } : { x: 63, y: SHIP_Y };
     this.aimX = laserTarget.x;
     this.aimY = laserTarget.y;
     this.aimUntilMs = nowMs + 260;
     this.lasers.push({ note, color, at: nowMs, targetX: laserTarget.x, targetY: laserTarget.y, locked: Boolean(target) });
-    if (!target) { this.lastJudgement = `${BY_TRD_NOTE.get(note)?.label || note} laser: wrong color`; return false; }
+    if (!target) {
+      const want = BY_TRD_NOTE.get(nearestAny?.note)?.label || "matching color";
+      this.lastJudgement = `wrong color — try ${want}`;
+      return false;
+    }
+    const dt = nowMs - target.targetMs;
+    if (dt < -FREE_EARLY_MS) { this.lastJudgement = "right color — wait for the beat"; return false; }
+    if (dt > FREE_LATE_MS) { this.lastJudgement = "right color — a little sooner"; return false; }
     target.hp--;
-    this.explosions.push({ x: target.x, y: target.y, color, at: nowMs, ttl: target.hp > 0 ? 360 : 680, power: target.hp > 0 ? 1 : 3 + Math.floor(this.combo / 3) });
+    this.breakApart(target.x, target.y, color, nowMs, target.hp > 0 ? 1 : 3 + Math.floor(this.combo / 3), target.hp > 0 ? 360 : 680, target.id);
     if (target.hp > 0) {
       target.r = Math.max(2, target.r - 1);
       target.x += 3;
-      this.lastJudgement = "hit! big asteroid cracked — shoot again";
+      target.targetMs += FREE_BEAT_MS;
+      this.lastJudgement = "cracked — hit the next beat to finish it";
       return true;
     }
     this.asteroids = this.asteroids.filter(a => a !== target);
     this.score++;
     this.combo++;
     this.updateLevel();
-    this.lastJudgement = `boom! score ${this.score} combo x${this.combo}`;
-    if (this.asteroids.length === 0) this.spawnAsteroid(nowMs + 120);
+    const pad = BY_TRD_NOTE.get(note);
+    const feel = Math.abs(dt) < 100 ? "on the beat" : dt < 0 ? "nice anticipation" : "good recovery";
+    this.lastJudgement = `${feel} ${pad?.label || note}! score ${this.score} combo x${this.combo}`;
     return true;
   }
   drawStars(px, nowMs) {
@@ -307,6 +360,13 @@ export class SpaceshipAsteroidsSim {
     line(px, SHIP_X - 5, SHIP_Y + 2, SHIP_X - 11, SHIP_Y + 4 - Math.round(tilt * 0.3), flame1, 0.9);
     line(px, SHIP_X - 6, SHIP_Y, SHIP_X - 13, SHIP_Y - Math.round(tilt * 0.25), flame2, 0.65 * flicker);
   }
+  drawFreeBeatGuide(px, nowMs) {
+    if (this.lessonMode) return;
+    const pulse = this.beatPulse(nowMs);
+    if (pulse <= 0.02) return;
+    line(px, 44, 5, 44, HEIGHT - 6, [90, 160, 255], 0.18 + pulse * 0.35);
+    fillCircle(px, SHIP_X - 6, SHIP_Y, 2 + Math.round(2 * pulse), [90, 190, 255], pulse * 0.35);
+  }
   drawLessonGuide(px, nowMs) {
     if (!this.lessonMode) return;
     const beatMs = this.lessonBeatMs();
@@ -339,15 +399,26 @@ export class SpaceshipAsteroidsSim {
   }
   drawExplosions(px, nowMs) {
     for (const e of this.explosions) {
-      const p = (nowMs - e.at) / e.ttl;
+      const age = nowMs - e.at;
+      const p = age / e.ttl;
       const life = 1 - p;
-      const r = 2 + Math.round((8 + e.power * 3) * p);
-      for (let y = e.y - r - 2; y <= e.y + r + 2; y++) for (let x = e.x - r - 2; x <= e.x + r + 2; x++) {
-        const d = Math.hypot(x - e.x, y - e.y);
-        const ring = 1 - Math.abs(d - r) / 2.2;
-        const spark = ((x * 7 + y * 13 + Math.floor(nowMs / 22)) % Math.max(3, 13 - e.power)) === 0 ? 0.8 : 0;
-        const a = Math.max(0, ring * life + spark * life);
-        if (a > 0.05) addPixel(px, x, y, e.color, a);
+      for (let i = 0; i < (e.fragments?.length || 0); i++) {
+        const f = e.fragments[i];
+        const fx = e.x + f.vx * age;
+        const fy = e.y + f.vy * age + 0.000012 * age * age;
+        const rock = [Math.min(255, e.color[0] * f.shade + 45), Math.min(255, e.color[1] * f.shade + 35), Math.min(255, e.color[2] * f.shade + 25)];
+        const s = f.size;
+        line(px, fx - s, fy, fx, fy - s * f.spin, rock, life * 0.95);
+        line(px, fx, fy - s * f.spin, fx + s, fy, rock, life * 0.8);
+        line(px, fx + s, fy, fx, fy + s * f.spin, rock, life * 0.7);
+        line(px, fx + s, fy + s * f.spin, fx - s, fy, [255, 245, 190], life * 0.18);
+      }
+      if (life > 0.15) {
+        const r = 1 + Math.round((2 + e.power) * p);
+        for (let i = 0; i < 4 + e.power; i++) {
+          const a = i * Math.PI * 2 / (4 + e.power) + p * 1.8;
+          addPixel(px, e.x + Math.cos(a) * r, e.y + Math.sin(a) * r, [255,255,255], life * 0.55);
+        }
       }
     }
   }
@@ -355,6 +426,7 @@ export class SpaceshipAsteroidsSim {
     this.update(nowMs);
     const px = Array.from({ length: HEIGHT }, () => Array.from({ length: WIDTH }, () => [0, 2, 12]));
     this.drawStars(px, nowMs);
+    this.drawFreeBeatGuide(px, nowMs);
     this.drawLessonGuide(px, nowMs);
     this.drawShip(px, nowMs);
     this.drawLasers(px, nowMs);
