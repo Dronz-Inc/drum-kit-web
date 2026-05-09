@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mr Roboto Space Drums</title>
+<style>
+:root{color-scheme:dark;--bg:#040713;--panel:#101827;--text:#ecf4ff;--muted:#91a4c2;--accent:#8df7ff}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% -10%,#1a2750,#040713 65%);color:var(--text);font:14px/1.4 system-ui,-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif}header{padding:12px 14px;border-bottom:1px solid #223654;background:#0c1322e8;display:flex;gap:9px;align-items:center;flex-wrap:wrap}h1{font-size:16px;margin:0 4px 0 0}button,select{font:inherit;border:1px solid #2c4267;border-radius:10px;background:#172238;color:var(--text);padding:8px 10px}button.primary{background:var(--accent);color:#021018;font-weight:800}.pill{border:1px solid #2c4267;border-radius:999px;padding:6px 10px;color:var(--muted)}main{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:14px;padding:14px}@media(max-width:900px){main{grid-template-columns:1fr}}section{background:#0c1322d8;border:1px solid #223654;border-radius:16px;padding:12px}.matrix{width:min(100%,768px);aspect-ratio:2/1;display:grid;grid-template-columns:repeat(64,1fr);grid-template-rows:repeat(32,1fr);gap:1px;padding:6px;background:#01030a;border-radius:14px;box-shadow:0 0 45px #000 inset}.px{border-radius:50%;background:#00030a}.pads{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.pad{min-height:54px;text-align:left;touch-action:manipulation}.log{font:12px ui-monospace,Menlo,monospace;white-space:pre-wrap;max-height:230px;overflow:auto;color:#bad0f6}.stat{display:grid;grid-template-columns:1fr auto;gap:4px;color:var(--muted)}.note{color:#ffd15e;margin:9px 0 0}.big{font-size:18px;font-weight:800}</style>
+</head>
+<body>
+<header>
+<h1>🚀 Mr Roboto Space Drums</h1>
+<button id="reset" class="primary">Start / Reset</button>
+<button id="startMidi">Start Web MIDI</button>
+<select id="input" disabled><option>No input</option></select>
+<span id="state" class="pill">space simulator ready</span>
+</header>
+<main>
+<section>
+<div id="matrix" class="matrix" aria-label="64 by 32 simulated LED matrix"></div>
+<p class="note">Asteroids drift toward the spaceship. Shoot the matching drum-color laser. Bigger asteroids take two hits. Difficulty ramps as score climbs.</p>
+</section>
+<section>
+<div id="score" class="big">Score 0 · L1 · Combo x0</div>
+<h2>Laser controls</h2>
+<div id="pads" class="pads"></div>
+<h2>Input stats</h2>
+<div id="stats"></div>
+<h2>Log</h2>
+<div id="log" class="log"></div>
+</section>
+</main>
+<script type="module">
+import { TRD_PADS, parseMidiMessage } from "../src/trd-mapping.mjs";
+import { SpaceshipAsteroidsSim } from "../src/spaceship-asteroids-sim.mjs";
+
+const sim = new SpaceshipAsteroidsSim();
+const matrixEl = document.getElementById('matrix');
+const padsEl = document.getElementById('pads');
+const logEl = document.getElementById('log');
+const statsEl = document.getElementById('stats');
+const stateEl = document.getElementById('state');
+const inputEl = document.getElementById('input');
+const scoreEl = document.getElementById('score');
+const px = [];
+const receiveLatencies = [];
+let midiAccess, currentInput, msgCount = 0;
+
+const usablePads = TRD_PADS.filter(p => p.id !== 'hihat_closed' && p.id !== 'hihat_pedal');
+for (let i=0;i<64*32;i++){const d=document.createElement('div');d.className='px';matrixEl.appendChild(d);px.push(d)}
+for (const pad of usablePads) {
+  const b=document.createElement('button'); b.className='pad';
+  b.innerHTML=`<b>${pad.label}</b><br>laser color`;
+  b.style.borderColor=`rgb(${pad.color.join(',')})`;
+  b.onclick=()=>shoot(pad.trdNote,'button');
+  padsEl.appendChild(b);
+}
+function log(s){logEl.textContent=`${new Date().toLocaleTimeString()} ${s}\n`+logEl.textContent.slice(0,3000)}
+function shoot(note, source){
+  const ok=sim.shoot(note, performance.now());
+  stateEl.textContent=sim.lastJudgement;
+  log(`${source} ${ok?'✅':'·'} ${sim.lastJudgement}`);
+}
+function render(){
+  const frame=sim.frame(performance.now());
+  let i=0; for(const row of frame) for(const [r,g,b] of row) px[i++].style.backgroundColor=`rgb(${r},${g},${b})`;
+  scoreEl.textContent=`Score ${sim.score} · L${sim.level} · Combo x${sim.combo}`;
+  requestAnimationFrame(render);
+}
+render();
+function updateStats(){
+  const sorted=[...receiveLatencies].sort((a,b)=>a-b); const pct=p=>sorted.length?sorted[Math.min(sorted.length-1,Math.floor((sorted.length-1)*p))]:0;
+  statsEl.innerHTML=`<div class=stat><span>MIDI messages</span><b>${msgCount}</b></div><div class=stat><span>receive median</span><b>${pct(.5).toFixed(2)} ms</b></div><div class=stat><span>receive p95</span><b>${pct(.95).toFixed(2)} ms</b></div>`;
+}
+setInterval(updateStats,300);
+document.getElementById('reset').onclick=()=>{sim.reset(performance.now());stateEl.textContent='new space run started';log('reset space run')};
+document.getElementById('startMidi').onclick=async()=>{
+  if(!navigator.requestMIDIAccess){stateEl.textContent='Web MIDI unsupported; use Chrome/Edge';return;}
+  midiAccess=await navigator.requestMIDIAccess({sysex:false}); inputEl.disabled=false; inputEl.innerHTML='<option value="">Select input…</option>';
+  for(const inp of midiAccess.inputs.values()) inputEl.appendChild(new Option(inp.name,inp.id));
+  const preferred=[...midiAccess.inputs.values()].find(i=>/trd|midi|kalezo/i.test(i.name));
+  if(preferred){inputEl.value=preferred.id;attach(preferred.id);} else stateEl.textContent='MIDI ready — select input';
+};
+inputEl.onchange=()=>attach(inputEl.value);
+function attach(id){
+  if(currentInput) currentInput.onmidimessage=null;
+  currentInput=midiAccess.inputs.get(id); if(!currentInput)return;
+  currentInput.onmidimessage=ev=>{
+    msgCount++; receiveLatencies.push(Math.max(0,performance.now()-ev.timeStamp)); if(receiveLatencies.length>500)receiveLatencies.shift();
+    const parsed=parseMidiMessage(ev.data); if(parsed.kind==='note-on') shoot(parsed.note,'midi');
+  };
+  stateEl.textContent=`connected: ${currentInput.name}`;
+}
+</script>
+</body>
+</html>

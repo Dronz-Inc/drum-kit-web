@@ -1,8 +1,9 @@
-# Mr Roboto Rhythm Drum Game
+# Mr Roboto Space Drums
 
-Public web simulator for the drum-learning MatrixPortal project.
+Public web simulator for the drum-learning game iterations.
 
-Open the live version:
+Current live version:
 https://dronz-inc.github.io/drum-kit-web/
 
-Use Chrome or Edge for Web MIDI / Web Serial. The on-screen pad buttons work without hardware.
+Saved rhythm-game v1 remains available in the Git tag/branch `saved-rhythm-game-v1`.
+Use Chrome or Edge for Web MIDI. The on-screen buttons work without hardware, including from a phone.
