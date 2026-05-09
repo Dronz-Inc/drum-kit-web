@@ -266,8 +266,6 @@ export class SpaceshipAsteroidsSim {
       return false;
     }
     const dt = nowMs - target.targetMs;
-    if (dt < -FREE_EARLY_MS) { this.lastJudgement = "right color — wait for the beat"; return false; }
-    if (dt > FREE_LATE_MS) { this.lastJudgement = "right color — a little sooner"; return false; }
     target.hp--;
     this.breakApart(target.x, target.y, color, nowMs, target.hp > 0 ? 1 : 3 + Math.floor(this.combo / 3), target.hp > 0 ? 360 : 680, target.id);
     if (target.hp > 0) {
@@ -282,7 +280,10 @@ export class SpaceshipAsteroidsSim {
     this.combo++;
     this.updateLevel();
     const pad = BY_TRD_NOTE.get(note);
-    const feel = Math.abs(dt) < 100 ? "on the beat" : dt < 0 ? "nice anticipation" : "good recovery";
+    let feel = "on the beat";
+    if (dt < -FREE_EARLY_MS) feel = "early blast — next one on the pulse";
+    else if (dt > FREE_LATE_MS) feel = "late blast — try the next pulse";
+    else if (Math.abs(dt) >= 100) feel = dt < 0 ? "nice anticipation" : "good recovery";
     this.lastJudgement = `${feel} ${pad?.label || note}! score ${this.score} combo x${this.combo}`;
     return true;
   }
