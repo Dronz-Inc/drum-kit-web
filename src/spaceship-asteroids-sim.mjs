@@ -113,7 +113,7 @@ export class SpaceshipAsteroidsSim {
       for (let i = 0; i < layer.count; i++) {
         const lane = i + layer.seed;
         const span = WIDTH + 18;
-        const rawX = (lane * 23 + layer.seed * 11 - nowMs * layer.speed) % span;
+        const rawX = (lane * 23 + layer.seed * 11 + nowMs * layer.speed) % span;
         const x = rawX < 0 ? rawX + span - 9 : rawX - 9;
         const y = (lane * 13 + layer.seed * 5 + Math.floor(lane / 3) * 7) % HEIGHT;
         const twinkle = 0.74 + 0.26 * Math.sin(nowMs * 0.006 + lane * 1.7);
