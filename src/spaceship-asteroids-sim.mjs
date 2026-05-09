@@ -94,29 +94,73 @@ export class SpaceshipAsteroidsSim {
     return true;
   }
   drawStars(px, nowMs) {
-    for (let i = 0; i < 90; i++) {
-      const layer = 1 + (i % 3);
-      const speed = layer * 0.006;
-      const x = (WIDTH + ((i * 19) % WIDTH) - ((nowMs * speed + i * 7) % WIDTH)) % WIDTH;
-      const y = (i * 11 + layer * 5) % HEIGHT;
-      const a = [0.35, 0.65, 1][layer - 1];
-      addPixel(px, x, y, [120 + layer * 35, 170 + layer * 20, 255], a);
-      if (layer === 3) addPixel(px, x + 1, y, [120, 210, 255], 0.35);
+    // Starfield only: no planets/suns, so asteroids stay visually important.
+    // Four layers use different densities, speeds, brightness, and sprite shapes.
+    const layers = [
+      { count: 26, speed: 0.0024, color: [55, 75, 130], alpha: 0.34, shape: 0, seed: 3 },
+      { count: 34, speed: 0.0052, color: [95, 125, 190], alpha: 0.50, shape: 1, seed: 17 },
+      { count: 28, speed: 0.0105, color: [160, 205, 255], alpha: 0.76, shape: 2, seed: 31 },
+      { count: 16, speed: 0.0185, color: [225, 245, 255], alpha: 0.95, shape: 3, seed: 47 }
+    ];
+    for (const layer of layers) {
+      for (let i = 0; i < layer.count; i++) {
+        const lane = i + layer.seed;
+        const span = WIDTH + 18;
+        const rawX = (lane * 23 + layer.seed * 11 - nowMs * layer.speed) % span;
+        const x = rawX < 0 ? rawX + span - 9 : rawX - 9;
+        const y = (lane * 13 + layer.seed * 5 + Math.floor(lane / 3) * 7) % HEIGHT;
+        const twinkle = 0.74 + 0.26 * Math.sin(nowMs * 0.006 + lane * 1.7);
+        const a = layer.alpha * twinkle;
+        if (layer.shape === 0) {
+          addPixel(px, x, y, layer.color, a);
+        } else if (layer.shape === 1) {
+          addPixel(px, x, y, layer.color, a);
+          addPixel(px, x - 1, y, layer.color, a * 0.28);
+        } else if (layer.shape === 2) {
+          addPixel(px, x, y, layer.color, a);
+          addPixel(px, x - 1, y, layer.color, a * 0.55);
+          addPixel(px, x - 2, y, layer.color, a * 0.20);
+          if ((lane & 3) === 0) addPixel(px, x, y - 1, [210, 235, 255], a * 0.32);
+        } else {
+          addPixel(px, x, y, layer.color, a);
+          addPixel(px, x - 1, y, layer.color, a * 0.72);
+          addPixel(px, x - 2, y, layer.color, a * 0.48);
+          addPixel(px, x - 3, y, layer.color, a * 0.22);
+          if ((lane & 1) === 0) addPixel(px, x, y + 1, [140, 220, 255], a * 0.36);
+        }
+      }
     }
-    // occasional suns/planets drifting in the background
-    const planetX = WIDTH - ((nowMs * 0.004) % 110);
-    if (planetX > -10 && planetX < WIDTH + 10) fillCircle(px, planetX, 6, 4, [255, 160, 35], 0.45);
-    const moonX = WIDTH - ((nowMs * 0.002 + 45) % 120);
-    if (moonX > -8 && moonX < WIDTH + 8) fillCircle(px, moonX, 25, 3, [80, 180, 255], 0.45);
   }
   drawShip(px, nowMs) {
     const flash = nowMs - this.shipFlashMs < 130;
-    const body = flash ? [255, 255, 255] : [95, 190, 255];
-    line(px, SHIP_X - 4, SHIP_Y - 5, SHIP_X + 5, SHIP_Y, body, 1);
-    line(px, SHIP_X - 4, SHIP_Y + 5, SHIP_X + 5, SHIP_Y, body, 1);
-    line(px, SHIP_X - 2, SHIP_Y, SHIP_X + 6, SHIP_Y, [255, 235, 90], 1);
-    line(px, SHIP_X - 5, SHIP_Y - 2, SHIP_X - 9, SHIP_Y - 4, [255, 80, 20], 0.8);
-    line(px, SHIP_X - 5, SHIP_Y + 2, SHIP_X - 9, SHIP_Y + 4, [255, 80, 20], 0.8);
+    const hull = flash ? [255, 255, 255] : [95, 205, 255];
+    const glass = flash ? [255, 255, 190] : [255, 235, 90];
+    const trim = [35, 90, 255];
+    const flame1 = flash ? [255, 245, 90] : [255, 80, 18];
+    const flame2 = flash ? [255, 95, 30] : [90, 190, 255];
+
+    // Needle-nose sci-fi rocket with wings, cockpit, engine plume, and highlights.
+    line(px, SHIP_X - 5, SHIP_Y - 5, SHIP_X + 8, SHIP_Y, hull, 1);
+    line(px, SHIP_X - 5, SHIP_Y + 5, SHIP_X + 8, SHIP_Y, hull, 1);
+    line(px, SHIP_X - 2, SHIP_Y - 2, SHIP_X + 7, SHIP_Y, [225, 245, 255], 0.85);
+    line(px, SHIP_X - 2, SHIP_Y + 2, SHIP_X + 7, SHIP_Y, [70, 145, 255], 0.85);
+    line(px, SHIP_X - 3, SHIP_Y - 1, SHIP_X + 5, SHIP_Y - 1, hull, 0.72);
+    line(px, SHIP_X - 3, SHIP_Y + 1, SHIP_X + 5, SHIP_Y + 1, hull, 0.72);
+    addPixel(px, SHIP_X + 8, SHIP_Y, [255, 255, 255], 1);
+
+    // Cockpit and blue fins.
+    addPixel(px, SHIP_X + 1, SHIP_Y, glass, 1);
+    addPixel(px, SHIP_X + 2, SHIP_Y, glass, 0.8);
+    line(px, SHIP_X - 2, SHIP_Y - 2, SHIP_X - 7, SHIP_Y - 7, trim, 0.95);
+    line(px, SHIP_X - 1, SHIP_Y - 1, SHIP_X - 5, SHIP_Y - 5, [110, 225, 255], 0.75);
+    line(px, SHIP_X - 2, SHIP_Y + 2, SHIP_X - 7, SHIP_Y + 7, trim, 0.95);
+    line(px, SHIP_X - 1, SHIP_Y + 1, SHIP_X - 5, SHIP_Y + 5, [110, 225, 255], 0.75);
+
+    // Twin engine trails with animated flicker.
+    const flicker = (Math.floor(nowMs / 70) & 1) ? 1 : 0.65;
+    line(px, SHIP_X - 5, SHIP_Y - 2, SHIP_X - 11, SHIP_Y - 4, flame1, 0.9 * flicker);
+    line(px, SHIP_X - 5, SHIP_Y + 2, SHIP_X - 11, SHIP_Y + 4, flame1, 0.9);
+    line(px, SHIP_X - 6, SHIP_Y, SHIP_X - 13, SHIP_Y, flame2, 0.65 * flicker);
   }
   drawAsteroids(px) {
     for (const a of this.asteroids) {
