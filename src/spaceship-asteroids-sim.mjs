@@ -12,7 +12,8 @@ const LESSON_EARLY_MS = 180;
 const LESSON_LATE_MS = 220;
 const FREE_BPM = 86;
 const FREE_BEAT_MS = 60000 / FREE_BPM;
-const FREE_TARGET_DELAY_MS = 600;
+const FREE_TARGET_DELAY_MS = 900;
+const FREE_TARGET_X = 44;
 const FREE_EARLY_MS = 220;
 const FREE_LATE_MS = 260;
 const ASTEROID_COLORS = [24, 26, 34, 37, 45, 39, 31, 35, 36];
@@ -126,14 +127,14 @@ export class SpaceshipAsteroidsSim {
   }
   breakApart(x, y, color, nowMs, power = 3, ttl = 720, seed = this.nextId) {
     const fragments = [];
-    const count = 6 + power * 3;
+    const count = 5 + power * 2;
     for (let i = 0; i < count; i++) {
       const angle = seededUnit(seed, i) * Math.PI * 2;
       const speed = 0.012 + seededUnit(seed + 5, i) * (0.020 + power * 0.004);
       fragments.push({
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        size: 1 + Math.floor(seededUnit(seed + 11, i) * Math.min(4, 1 + power)),
+        size: 2 + Math.floor(seededUnit(seed + 11, i) * Math.min(3, 1 + power)),
         spin: seededUnit(seed + 17, i) > 0.5 ? 1 : -1,
         shade: 0.55 + seededUnit(seed + 23, i) * 0.55
       });
@@ -147,8 +148,8 @@ export class SpaceshipAsteroidsSim {
     const hp = big ? 2 : 1;
     const y = this.freeLaneForNote(note);
     const targetMs = Math.max(this.nextFreeTargetMs, nowMs + FREE_TARGET_DELAY_MS);
-    const speed = 0.007 + this.level * 0.0006;
-    this.asteroids.push({ id: this.nextId++, note, x: ASTEROID_START_X, y, r: big ? 4 : 3, hp, maxHp: hp, speed, born: nowMs, targetMs, freeBeat: true });
+    const speed = 0.010 + this.level * 0.0007;
+    this.asteroids.push({ id: this.nextId++, note, x: ASTEROID_START_X, y, r: big ? 5 : 4, hp, maxHp: hp, speed, born: nowMs, targetMs, freeBeat: true });
     this.nextFreeTargetMs = targetMs + FREE_BEAT_MS;
     this.lastSpawnMs = nowMs;
   }
@@ -204,7 +205,15 @@ export class SpaceshipAsteroidsSim {
     if (this.lessonMode) { this.updateLessonAsteroids(nowMs); return; }
     this.updateLevel();
     while (this.asteroids.length < this.maxAsteroids() && nowMs >= this.nextFreeTargetMs - FREE_TARGET_DELAY_MS) this.spawnAsteroid(nowMs);
-    for (const a of this.asteroids) a.x -= a.speed * Math.max(0, nowMs - (a.lastMs || nowMs));
+    for (const a of this.asteroids) {
+      const dt = Math.max(0, nowMs - (a.lastMs || nowMs));
+      if (a.freeBeat && nowMs <= a.targetMs) {
+        const progress = 1 - (a.targetMs - nowMs) / FREE_TARGET_DELAY_MS;
+        a.x = lerp(ASTEROID_START_X, FREE_TARGET_X, progress);
+      } else {
+        a.x -= a.speed * dt;
+      }
+    }
     for (const a of this.asteroids) a.lastMs = nowMs;
     const survivors = [];
     for (const a of this.asteroids) {
@@ -291,10 +300,10 @@ export class SpaceshipAsteroidsSim {
     // Starfield only: no planets/suns, so asteroids stay visually important.
     // Four layers use different densities, speeds, brightness, and sprite shapes.
     const layers = [
-      { count: 26, speed: 0.0024, color: [55, 75, 130], alpha: 0.34, shape: 0, seed: 3 },
-      { count: 34, speed: 0.0052, color: [95, 125, 190], alpha: 0.50, shape: 1, seed: 17 },
-      { count: 28, speed: 0.0105, color: [160, 205, 255], alpha: 0.76, shape: 2, seed: 31 },
-      { count: 16, speed: 0.0185, color: [225, 245, 255], alpha: 0.95, shape: 3, seed: 47 }
+      { count: 10, speed: 0.0024, color: [35, 48, 95], alpha: 0.16, shape: 0, seed: 3 },
+      { count: 12, speed: 0.0052, color: [65, 85, 145], alpha: 0.24, shape: 1, seed: 17 },
+      { count: 9, speed: 0.0105, color: [115, 155, 220], alpha: 0.34, shape: 2, seed: 31 },
+      { count: 5, speed: 0.0185, color: [190, 225, 255], alpha: 0.48, shape: 3, seed: 47 }
     ];
     for (const layer of layers) {
       for (let i = 0; i < layer.count; i++) {
@@ -365,8 +374,17 @@ export class SpaceshipAsteroidsSim {
     if (this.lessonMode) return;
     const pulse = this.beatPulse(nowMs);
     if (pulse <= 0.02) return;
-    line(px, 44, 5, 44, HEIGHT - 6, [90, 160, 255], 0.18 + pulse * 0.35);
-    fillCircle(px, SHIP_X - 6, SHIP_Y, 2 + Math.round(2 * pulse), [90, 190, 255], pulse * 0.35);
+    const ring = 5 + Math.round(2 * pulse);
+    // Cyan/white drum portal: deliberately separate from yellow snare and orange explosions.
+    line(px, FREE_TARGET_X - 1, 2, FREE_TARGET_X - 1, HEIGHT - 3, [70, 210, 255], 0.55 + pulse * 0.75);
+    line(px, FREE_TARGET_X, 2, FREE_TARGET_X, HEIGHT - 3, [230, 255, 255], 0.32 + pulse * 0.65);
+    line(px, FREE_TARGET_X + 1, 2, FREE_TARGET_X + 1, HEIGHT - 3, [70, 210, 255], 0.55 + pulse * 0.75);
+    line(px, FREE_TARGET_X - ring, SHIP_Y - ring, FREE_TARGET_X + ring, SHIP_Y - ring, [130, 235, 255], 0.35 + pulse * 0.42);
+    line(px, FREE_TARGET_X - ring, SHIP_Y + ring, FREE_TARGET_X + ring, SHIP_Y + ring, [130, 235, 255], 0.35 + pulse * 0.42);
+    line(px, FREE_TARGET_X - ring, SHIP_Y - ring, FREE_TARGET_X - ring, SHIP_Y + ring, [130, 235, 255], 0.35 + pulse * 0.42);
+    line(px, FREE_TARGET_X + ring, SHIP_Y - ring, FREE_TARGET_X + ring, SHIP_Y + ring, [130, 235, 255], 0.35 + pulse * 0.42);
+    fillCircle(px, FREE_TARGET_X, SHIP_Y, 2 + Math.round(3 * pulse), [210, 250, 255], pulse * 0.36);
+    fillCircle(px, SHIP_X - 6, SHIP_Y, 2 + Math.round(2 * pulse), [90, 190, 255], pulse * 0.45);
   }
   drawLessonGuide(px, nowMs) {
     if (!this.lessonMode) return;
@@ -377,12 +395,28 @@ export class SpaceshipAsteroidsSim {
     line(px, LESSON_TARGET_X, 3, LESSON_TARGET_X, HEIGHT - 4, guide, 0.45 + pulse * 0.45);
     if (pulse > 0.05) fillCircle(px, LESSON_TARGET_X, SHIP_Y, 2 + Math.round(2 * pulse), [255,255,255], pulse * 0.45);
   }
-  drawAsteroids(px) {
+  drawAsteroids(px, performanceNowHint = 0) {
     for (const a of this.asteroids) {
       const color = padColor(a.note);
-      fillCircle(px, a.x, a.y, a.r, color, 0.9);
-      line(px, a.x - a.r, a.y - 1, a.x + a.r, a.y + 1, [255,255,255], 0.35);
-      if (a.hp > 1) fillCircle(px, a.x, a.y, 1, [255,255,255], 1);
+      const beatGlow = a.freeBeat && Math.abs((a.targetMs ?? 0) - performanceNowHint) < 180 ? 0.65 : 0;
+      const rr = a.r + Math.round(beatGlow * 1.5);
+      // Arcade Asteroids-style lumpy wireframe, with drum color as the teaching cue.
+      const pts = [
+        [-0.95, -0.25], [-0.45, -0.95], [0.15, -0.72], [0.72, -0.92],
+        [1.05, -0.18], [0.62, 0.18], [0.88, 0.78], [0.12, 0.95],
+        [-0.22, 0.45], [-0.82, 0.72], [-1.05, 0.08]
+      ].map(([dx, dy]) => [a.x + dx * rr, a.y + dy * rr]);
+      if (beatGlow > 0) fillCircle(px, a.x, a.y, rr + 2, color, beatGlow * 0.28);
+      for (let i = 0; i < pts.length; i++) {
+        const [x0, y0] = pts[i];
+        const [x1, y1] = pts[(i + 1) % pts.length];
+        line(px, x0, y0, x1, y1, [235, 240, 230], 0.72);
+        line(px, x0, y0 + 1, x1, y1 + 1, color, 0.58 + beatGlow * 0.38);
+      }
+      line(px, a.x - rr * 0.45, a.y - rr * 0.15, a.x + rr * 0.35, a.y + rr * 0.22, [150,155,150], 0.55);
+      line(px, a.x - rr * 0.18, a.y + rr * 0.45, a.x + rr * 0.48, a.y - rr * 0.35, [120,125,125], 0.42);
+      fillCircle(px, a.x, a.y, Math.max(1, Math.floor(rr / 3)), color, 0.9);
+      if (a.hp > 1) fillCircle(px, a.x, a.y, 2, [255,255,255], 1);
     }
   }
   drawLasers(px, nowMs) {
@@ -403,12 +437,19 @@ export class SpaceshipAsteroidsSim {
       const age = nowMs - e.at;
       const p = age / e.ttl;
       const life = 1 - p;
+      if (age < 110) {
+        const pop = 1 - age / 110;
+        fillCircle(px, e.x, e.y, 4 + Math.round(e.power * 0.8), [255, 135, 40], pop);
+        fillCircle(px, e.x, e.y, 2 + Math.round(e.power * 0.45), [255, 245, 220], pop * 0.7);
+      }
       for (let i = 0; i < (e.fragments?.length || 0); i++) {
         const f = e.fragments[i];
         const fx = e.x + f.vx * age;
         const fy = e.y + f.vy * age + 0.000012 * age * age;
-        const rock = [Math.min(255, e.color[0] * f.shade + 45), Math.min(255, e.color[1] * f.shade + 35), Math.min(255, e.color[2] * f.shade + 25)];
+        const hot = age < 240 ? 1 - age / 240 : 0;
+        const rock = [Math.min(255, 120 + e.color[0] * f.shade * 0.45 + hot * 120), Math.min(255, 70 + e.color[1] * f.shade * 0.25 + hot * 65), Math.min(255, 35 + e.color[2] * f.shade * 0.18)];
         const s = f.size;
+        fillCircle(px, fx, fy, Math.max(1, Math.round(s * 0.6)), rock, life * 0.9);
         line(px, fx - s, fy, fx, fy - s * f.spin, rock, life * 0.95);
         line(px, fx, fy - s * f.spin, fx + s, fy, rock, life * 0.8);
         line(px, fx + s, fy, fx, fy + s * f.spin, rock, life * 0.7);
@@ -418,7 +459,7 @@ export class SpaceshipAsteroidsSim {
         const r = 1 + Math.round((2 + e.power) * p);
         for (let i = 0; i < 4 + e.power; i++) {
           const a = i * Math.PI * 2 / (4 + e.power) + p * 1.8;
-          addPixel(px, e.x + Math.cos(a) * r, e.y + Math.sin(a) * r, [255,255,255], life * 0.55);
+          addPixel(px, e.x + Math.cos(a) * r, e.y + Math.sin(a) * r, [255,245,170], life * 0.75);
         }
       }
     }
@@ -431,7 +472,7 @@ export class SpaceshipAsteroidsSim {
     this.drawLessonGuide(px, nowMs);
     this.drawShip(px, nowMs);
     this.drawLasers(px, nowMs);
-    this.drawAsteroids(px);
+    this.drawAsteroids(px, nowMs);
     this.drawExplosions(px, nowMs);
     return px;
   }
