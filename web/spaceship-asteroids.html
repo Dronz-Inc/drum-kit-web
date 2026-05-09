@@ -13,12 +13,13 @@
 <button id="reset" class="primary">Start / Reset</button>
 <button id="startMidi">Start Web MIDI</button>
 <select id="input" disabled><option>No input</option></select>
+<select id="lesson"></select>
 <span id="state" class="pill">space simulator ready</span>
 </header>
 <main>
 <section>
 <div id="matrix" class="matrix" aria-label="64 by 32 simulated LED matrix"></div>
-<p class="note">Asteroids drift toward the spaceship. Shoot the matching drum-color laser. Bigger asteroids take two hits. Difficulty ramps as score climbs.</p>
+<p class="note">Free mode: shoot matching drum-color asteroids. Lesson modes: asteroids arrive on the beat line — hit the matching drum when they touch it.</p>
 </section>
 <section>
 <div id="score" class="big">Score 0 · L1 · Combo x0</div>
@@ -32,7 +33,7 @@
 </main>
 <script type="module">
 import { TRD_PADS, parseMidiMessage } from "../src/trd-mapping.mjs";
-import { SpaceshipAsteroidsSim } from "../src/spaceship-asteroids-sim.mjs";
+import { LESSONS, SpaceshipAsteroidsSim } from "../src/spaceship-asteroids-sim.mjs";
 
 const sim = new SpaceshipAsteroidsSim();
 const matrixEl = document.getElementById('matrix');
@@ -41,10 +42,19 @@ const logEl = document.getElementById('log');
 const statsEl = document.getElementById('stats');
 const stateEl = document.getElementById('state');
 const inputEl = document.getElementById('input');
+const lessonEl = document.getElementById('lesson');
 const scoreEl = document.getElementById('score');
 const px = [];
 const receiveLatencies = [];
 let midiAccess, currentInput, msgCount = 0;
+
+for (const lesson of LESSONS) lessonEl.appendChild(new Option(lesson.name, lesson.id));
+lessonEl.value = sim.lessonId;
+lessonEl.onchange = () => {
+  sim.reset(performance.now(), { lessonId: lessonEl.value });
+  stateEl.textContent = sim.lesson.description;
+  log(`mode ${sim.lesson.name}: ${sim.lesson.description}`);
+};
 
 const usablePads = TRD_PADS.filter(p => p.id !== 'hihat_closed' && p.id !== 'hihat_pedal');
 for (let i=0;i<64*32;i++){const d=document.createElement('div');d.className='px';matrixEl.appendChild(d);px.push(d)}
@@ -73,7 +83,7 @@ function updateStats(){
   statsEl.innerHTML=`<div class=stat><span>MIDI messages</span><b>${msgCount}</b></div><div class=stat><span>receive median</span><b>${pct(.5).toFixed(2)} ms</b></div><div class=stat><span>receive p95</span><b>${pct(.95).toFixed(2)} ms</b></div>`;
 }
 setInterval(updateStats,300);
-document.getElementById('reset').onclick=()=>{sim.reset(performance.now());stateEl.textContent='new space run started';log('reset space run')};
+document.getElementById('reset').onclick=()=>{sim.reset(performance.now(), { lessonId: lessonEl.value });stateEl.textContent=sim.lesson.description || 'new space run started';log(`reset ${sim.lesson.name}`)};
 document.getElementById('startMidi').onclick=async()=>{
   if(!navigator.requestMIDIAccess){stateEl.textContent='Web MIDI unsupported; use Chrome/Edge';return;}
   midiAccess=await navigator.requestMIDIAccess({sysex:false}); inputEl.disabled=false; inputEl.innerHTML='<option value="">Select input…</option>';
