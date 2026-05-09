@@ -40,6 +40,9 @@ export class SpaceshipAsteroidsSim {
     this.level = 1;
     this.nextId = 1;
     this.shipFlashMs = -9999;
+    this.aimUntilMs = -9999;
+    this.aimX = SHIP_X + 18;
+    this.aimY = SHIP_Y;
     this.lastJudgement = "shoot matching color asteroids";
     this.spawnAsteroid(nowMs);
   }
@@ -73,9 +76,13 @@ export class SpaceshipAsteroidsSim {
     this.update(nowMs);
     const color = padColor(note);
     this.shipFlashMs = nowMs;
-    this.lasers.push({ note, color, at: nowMs });
     const candidates = this.asteroids.filter(a => a.note === note).sort((a,b) => a.x - b.x);
     const target = candidates[0];
+    const laserTarget = target ? { x: target.x, y: target.y } : { x: 63, y: SHIP_Y };
+    this.aimX = laserTarget.x;
+    this.aimY = laserTarget.y;
+    this.aimUntilMs = nowMs + 260;
+    this.lasers.push({ note, color, at: nowMs, targetX: laserTarget.x, targetY: laserTarget.y, locked: Boolean(target) });
     if (!target) { this.lastJudgement = `${BY_TRD_NOTE.get(note)?.label || note} laser: wrong color`; return false; }
     target.hp--;
     this.explosions.push({ x: target.x, y: target.y, color, at: nowMs, ttl: target.hp > 0 ? 360 : 680, power: target.hp > 0 ? 1 : 3 + Math.floor(this.combo / 3) });
@@ -138,29 +145,34 @@ export class SpaceshipAsteroidsSim {
     const trim = [35, 90, 255];
     const flame1 = flash ? [255, 245, 90] : [255, 80, 18];
     const flame2 = flash ? [255, 95, 30] : [90, 190, 255];
+    const aiming = nowMs < this.aimUntilMs;
+    const targetY = aiming ? this.aimY : SHIP_Y;
+    const tilt = clamp(Math.round((targetY - SHIP_Y) / 3), -5, 5);
+    const noseX = SHIP_X + 8;
+    const noseY = SHIP_Y + tilt;
 
     // Needle-nose sci-fi rocket with wings, cockpit, engine plume, and highlights.
-    line(px, SHIP_X - 5, SHIP_Y - 5, SHIP_X + 8, SHIP_Y, hull, 1);
-    line(px, SHIP_X - 5, SHIP_Y + 5, SHIP_X + 8, SHIP_Y, hull, 1);
-    line(px, SHIP_X - 2, SHIP_Y - 2, SHIP_X + 7, SHIP_Y, [225, 245, 255], 0.85);
-    line(px, SHIP_X - 2, SHIP_Y + 2, SHIP_X + 7, SHIP_Y, [70, 145, 255], 0.85);
-    line(px, SHIP_X - 3, SHIP_Y - 1, SHIP_X + 5, SHIP_Y - 1, hull, 0.72);
-    line(px, SHIP_X - 3, SHIP_Y + 1, SHIP_X + 5, SHIP_Y + 1, hull, 0.72);
-    addPixel(px, SHIP_X + 8, SHIP_Y, [255, 255, 255], 1);
+    line(px, SHIP_X - 5, SHIP_Y - 5, noseX, noseY, hull, 1);
+    line(px, SHIP_X - 5, SHIP_Y + 5, noseX, noseY, hull, 1);
+    line(px, SHIP_X - 2, SHIP_Y - 2, SHIP_X + 6, SHIP_Y + Math.round(tilt * 0.65), [225, 245, 255], 0.85);
+    line(px, SHIP_X - 2, SHIP_Y + 2, SHIP_X + 6, SHIP_Y + Math.round(tilt * 0.65), [70, 145, 255], 0.85);
+    line(px, SHIP_X - 3, SHIP_Y - 1, SHIP_X + 5, SHIP_Y + Math.round(tilt * 0.45), hull, 0.72);
+    line(px, SHIP_X - 3, SHIP_Y + 1, SHIP_X + 5, SHIP_Y + Math.round(tilt * 0.45), hull, 0.72);
+    addPixel(px, noseX, noseY, [255, 255, 255], 1);
 
-    // Cockpit and blue fins.
-    addPixel(px, SHIP_X + 1, SHIP_Y, glass, 1);
-    addPixel(px, SHIP_X + 2, SHIP_Y, glass, 0.8);
-    line(px, SHIP_X - 2, SHIP_Y - 2, SHIP_X - 7, SHIP_Y - 7, trim, 0.95);
-    line(px, SHIP_X - 1, SHIP_Y - 1, SHIP_X - 5, SHIP_Y - 5, [110, 225, 255], 0.75);
-    line(px, SHIP_X - 2, SHIP_Y + 2, SHIP_X - 7, SHIP_Y + 7, trim, 0.95);
-    line(px, SHIP_X - 1, SHIP_Y + 1, SHIP_X - 5, SHIP_Y + 5, [110, 225, 255], 0.75);
+    // Cockpit and blue fins follow the nose angle.
+    addPixel(px, SHIP_X + 1, SHIP_Y + Math.round(tilt * 0.25), glass, 1);
+    addPixel(px, SHIP_X + 2, SHIP_Y + Math.round(tilt * 0.35), glass, 0.8);
+    line(px, SHIP_X - 2, SHIP_Y - 2, SHIP_X - 7, SHIP_Y - 7 + Math.round(tilt * 0.35), trim, 0.95);
+    line(px, SHIP_X - 1, SHIP_Y - 1, SHIP_X - 5, SHIP_Y - 5 + Math.round(tilt * 0.35), [110, 225, 255], 0.75);
+    line(px, SHIP_X - 2, SHIP_Y + 2, SHIP_X - 7, SHIP_Y + 7 + Math.round(tilt * 0.35), trim, 0.95);
+    line(px, SHIP_X - 1, SHIP_Y + 1, SHIP_X - 5, SHIP_Y + 5 + Math.round(tilt * 0.35), [110, 225, 255], 0.75);
 
     // Twin engine trails with animated flicker.
     const flicker = (Math.floor(nowMs / 70) & 1) ? 1 : 0.65;
-    line(px, SHIP_X - 5, SHIP_Y - 2, SHIP_X - 11, SHIP_Y - 4, flame1, 0.9 * flicker);
-    line(px, SHIP_X - 5, SHIP_Y + 2, SHIP_X - 11, SHIP_Y + 4, flame1, 0.9);
-    line(px, SHIP_X - 6, SHIP_Y, SHIP_X - 13, SHIP_Y, flame2, 0.65 * flicker);
+    line(px, SHIP_X - 5, SHIP_Y - 2, SHIP_X - 11, SHIP_Y - 4 - Math.round(tilt * 0.3), flame1, 0.9 * flicker);
+    line(px, SHIP_X - 5, SHIP_Y + 2, SHIP_X - 11, SHIP_Y + 4 - Math.round(tilt * 0.3), flame1, 0.9);
+    line(px, SHIP_X - 6, SHIP_Y, SHIP_X - 13, SHIP_Y - Math.round(tilt * 0.25), flame2, 0.65 * flicker);
   }
   drawAsteroids(px) {
     for (const a of this.asteroids) {
@@ -174,8 +186,13 @@ export class SpaceshipAsteroidsSim {
     for (const l of this.lasers) {
       const age = nowMs - l.at;
       const a = 1 - age / 180;
-      line(px, SHIP_X + 6, SHIP_Y, 63, SHIP_Y, l.color, a);
-      line(px, SHIP_X + 8, SHIP_Y - 1, 63, SHIP_Y - 1, [255,255,255], a * 0.45);
+      const startX = SHIP_X + 7;
+      const startY = SHIP_Y + clamp(Math.round((l.targetY - SHIP_Y) / 3), -5, 5);
+      const endX = l.targetX;
+      const endY = l.targetY;
+      line(px, startX, startY, endX, endY, l.color, a);
+      line(px, startX + 1, startY - 1, endX, endY - 1, [255,255,255], a * (l.locked ? 0.55 : 0.25));
+      if (l.locked) fillCircle(px, endX, endY, 1, [255,255,255], a * 0.9);
     }
   }
   drawExplosions(px, nowMs) {
