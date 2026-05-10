@@ -19,7 +19,11 @@ const FREE_TARGET_X = 44;
 const FREE_EARLY_MS = 360;
 const FREE_LATE_MS = 420;
 const FREE_SWEET_MS = 110;
+// One cooldown shared by the whole kit: otherwise Leo can alternate yellow/green
+// hits and effectively machine-gun lasers even though each individual pad is
+// technically respecting its own cooldown.
 const REFIRE_COOLDOWN_MS = 170;
+const BOTH_HAND_CHORD_WINDOW_MS = 85;
 const LASER_TTL_MS = 80;
 const ASTEROID_COLORS = [24, 26, 34, 37, 45, 39, 31, 35, 36];
 
@@ -106,6 +110,9 @@ export class SpaceshipAsteroidsSim {
     this.lasers = [];
     this.explosions = [];
     this.lastShotByNote = new Map();
+    this.lastShotMs = -Infinity;
+    this.lastShotNote = null;
+    this.lastShotGroup = null;
     this.score = 0;
     this.combo = 0;
     this.bestCombo = 0;
@@ -294,18 +301,28 @@ export class SpaceshipAsteroidsSim {
     if (this.lessonMode) return this.shootLesson(note, nowMs);
     this.update(nowMs);
     const color = padColor(note);
-    const lastShotMs = this.lastShotByNote.get(note);
-    if (lastShotMs != null && nowMs - lastShotMs < REFIRE_COOLDOWN_MS) {
+    const nearestAny = [...this.asteroids].sort((a,b) => Math.abs((a.targetMs ?? 0) - nowMs) - Math.abs((b.targetMs ?? 0) - nowMs))[0];
+    const candidates = this.asteroids.filter(a => noteMatches(a.note, note)).sort((a,b) => Math.abs((a.targetMs ?? 0) - nowMs) - Math.abs((b.targetMs ?? 0) - nowMs));
+    const target = candidates[0];
+    const pairedFollowup = Boolean(
+      target?.group &&
+      target.group === this.lastShotGroup &&
+      note !== this.lastShotNote &&
+      nowMs - this.lastShotMs <= BOTH_HAND_CHORD_WINDOW_MS
+    );
+    const samePadRefire = this.lastShotByNote.has(note) && nowMs - this.lastShotByNote.get(note) < REFIRE_COOLDOWN_MS;
+    const globalRefire = nowMs - this.lastShotMs < REFIRE_COOLDOWN_MS;
+    if ((samePadRefire || globalRefire) && !pairedFollowup) {
       this.lasers = this.lasers.filter(l => l.note !== note);
       if (this.aimUntilMs > nowMs) this.aimUntilMs = nowMs;
       this.lastJudgement = "cooldown — wait for the next asteroid";
       return false;
     }
     this.lastShotByNote.set(note, nowMs);
+    this.lastShotMs = nowMs;
+    this.lastShotNote = note;
+    this.lastShotGroup = target?.group ?? null;
     this.shipFlashMs = nowMs;
-    const nearestAny = [...this.asteroids].sort((a,b) => Math.abs((a.targetMs ?? 0) - nowMs) - Math.abs((b.targetMs ?? 0) - nowMs))[0];
-    const candidates = this.asteroids.filter(a => noteMatches(a.note, note)).sort((a,b) => Math.abs((a.targetMs ?? 0) - nowMs) - Math.abs((b.targetMs ?? 0) - nowMs));
-    const target = candidates[0];
     const laserTarget = target ? { x: target.x, y: target.y } : nearestAny ? { x: nearestAny.x, y: nearestAny.y } : { x: 63, y: SHIP_Y };
     this.aimX = laserTarget.x;
     this.aimY = laserTarget.y;
