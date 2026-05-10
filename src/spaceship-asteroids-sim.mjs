@@ -18,6 +18,7 @@ const FREE_TEMPO_TIERS = Object.freeze([
 const FREE_TARGET_X = 44;
 const FREE_EARLY_MS = 360;
 const FREE_LATE_MS = 420;
+const FREE_SWEET_MS = 110;
 const ASTEROID_COLORS = [24, 26, 34, 37, 45, 39, 31, 35, 36];
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
@@ -425,19 +426,25 @@ export class SpaceshipAsteroidsSim {
   }
   drawFreeBeatGuide(px, nowMs) {
     if (this.lessonMode) return;
-    const pulse = this.beatPulse(nowMs);
-    if (pulse <= 0.02) return;
-    const ring = 5 + Math.round(2 * pulse);
-    // Cyan/white drum portal: deliberately separate from yellow snare and orange explosions.
-    line(px, FREE_TARGET_X - 1, 2, FREE_TARGET_X - 1, HEIGHT - 3, [70, 210, 255], 0.55 + pulse * 0.75);
-    line(px, FREE_TARGET_X, 2, FREE_TARGET_X, HEIGHT - 3, [230, 255, 255], 0.32 + pulse * 0.65);
-    line(px, FREE_TARGET_X + 1, 2, FREE_TARGET_X + 1, HEIGHT - 3, [70, 210, 255], 0.55 + pulse * 0.75);
-    line(px, FREE_TARGET_X - ring, SHIP_Y - ring, FREE_TARGET_X + ring, SHIP_Y - ring, [130, 235, 255], 0.35 + pulse * 0.42);
-    line(px, FREE_TARGET_X - ring, SHIP_Y + ring, FREE_TARGET_X + ring, SHIP_Y + ring, [130, 235, 255], 0.35 + pulse * 0.42);
-    line(px, FREE_TARGET_X - ring, SHIP_Y - ring, FREE_TARGET_X - ring, SHIP_Y + ring, [130, 235, 255], 0.35 + pulse * 0.42);
-    line(px, FREE_TARGET_X + ring, SHIP_Y - ring, FREE_TARGET_X + ring, SHIP_Y + ring, [130, 235, 255], 0.35 + pulse * 0.42);
-    fillCircle(px, FREE_TARGET_X, SHIP_Y, 2 + Math.round(3 * pulse), [210, 250, 255], pulse * 0.36);
-    fillCircle(px, SHIP_X - 6, SHIP_Y, 2 + Math.round(2 * pulse), [90, 190, 255], pulse * 0.45);
+    const active = this.asteroids.filter(a => a.freeBeat && Math.abs((a.targetMs ?? 0) - nowMs) <= FREE_SWEET_MS);
+    if (!active.length) return;
+    const flash = (Math.floor(nowMs / 80) & 1) ? 1 : 0.55;
+    // One-pixel timing line only; crosshair boxes appear only for asteroids in the sweet zone.
+    line(px, FREE_TARGET_X, 2, FREE_TARGET_X, HEIGHT - 3, [230, 255, 255], 0.65 * flash);
+    for (const a of active) {
+      const color = padColor(a.note);
+      const x = Math.round(a.x);
+      const y = Math.round(a.y);
+      const ring = Math.max(5, Math.round(a.r + 2));
+      line(px, x - ring, y - ring, x + ring, y - ring, [130, 235, 255], 0.62 * flash);
+      line(px, x - ring, y + ring, x + ring, y + ring, [130, 235, 255], 0.62 * flash);
+      line(px, x - ring, y - ring, x - ring, y + ring, [130, 235, 255], 0.62 * flash);
+      line(px, x + ring, y - ring, x + ring, y + ring, [130, 235, 255], 0.62 * flash);
+      line(px, x - ring - 2, y, x - ring + 1, y, color, 0.85 * flash);
+      line(px, x + ring - 1, y, x + ring + 2, y, color, 0.85 * flash);
+      line(px, x, y - ring - 2, x, y - ring + 1, color, 0.85 * flash);
+      line(px, x, y + ring - 1, x, y + ring + 2, color, 0.85 * flash);
+    }
   }
   drawLessonGuide(px, nowMs) {
     if (!this.lessonMode) return;
