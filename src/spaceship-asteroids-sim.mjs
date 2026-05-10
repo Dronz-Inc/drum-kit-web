@@ -36,7 +36,15 @@ function fillCircle(px, cx, cy, r, color, a = 1) {
     if (d <= r) addPixel(px, x, y, color, a * (1 - d / (r + 1) * 0.45));
   }
 }
-function padColor(note) { return BY_TRD_NOTE.get(note)?.color || [255,255,255]; }
+function noteList(note) { return Array.isArray(note) ? note : [note]; }
+function noteMatches(targetNote, hitNote) { return noteList(targetNote).includes(hitNote); }
+function padColor(note) { return BY_TRD_NOTE.get(noteList(note)[0])?.color || [255,255,255]; }
+function padColors(note) { return noteList(note).map(n => BY_TRD_NOTE.get(n)?.color || [255,255,255]); }
+function padLabel(note) {
+  const notes = noteList(note);
+  if (notes.length === 2 && notes.includes(26) && notes.includes(24)) return "Left+Right POP";
+  return notes.map(n => BY_TRD_NOTE.get(n)?.label || n).join(" + ");
+}
 function lerp(a, b, t) { return a + (b - a) * clamp(t, 0, 1); }
 function seededUnit(seed, n) { return (Math.sin(seed * 91.7 + n * 37.3) + 1) / 2; }
 
@@ -44,7 +52,7 @@ export const LESSONS = Object.freeze([
   {
     id: "free",
     name: "Free Asteroids",
-    description: "Easy musical asteroid mode: slow snare pulse first, then kick/snare, then fills after steady success.",
+    description: "Popcorn Hands: yellow snare = LEFT, green kick = RIGHT, then yellow+green POP.",
     mode: "free"
   },
   {
@@ -103,7 +111,7 @@ export class SpaceshipAsteroidsSim {
     this.aimUntilMs = -9999;
     this.aimX = SHIP_X + 18;
     this.aimY = SHIP_Y;
-    this.lastJudgement = this.lessonMode ? `${this.lesson.name}: wait for the asteroid to touch the beat line` : "Free Asteroids: slow snare pulse — match the color, then try the beat";
+    this.lastJudgement = this.lessonMode ? `${this.lesson.name}: wait for the asteroid to touch the beat line` : "Popcorn Hands: LEFT snare, RIGHT kick — slow and steady";
     if (this.lessonMode) this.ensureLessonAsteroids(nowMs);
     else this.spawnAsteroid(nowMs);
   }
@@ -115,12 +123,12 @@ export class SpaceshipAsteroidsSim {
   }
   updateLevel() { this.level = 1 + Math.floor(this.bestCombo / 8); }
   freeNoteForSeq(seq) {
-    if (this.bestCombo < 8) return 26; // Step 1: one color, one slow snare pulse.
-    if (this.bestCombo < 18) return [24, 26][seq & 1]; // Step 2: simple kick/snare rock skeleton.
-    if (this.bestCombo < 32) return [24, 34, 26, 34][seq & 3]; // Step 3: add hi-hat timekeeping.
-    return [24, 34, 26, 34, 31, 35, 36, 37][seq & 7]; // Step 4: fills only after the basics are clear.
+    if (this.bestCombo < 8) return [26, 24, 26, 24][seq & 3]; // Step 1: L R L R, with L=snare and R=kick.
+    if (this.bestCombo < 16) return [26, 26, 24, 24][seq & 3]; // Step 2: L L R R for a couple of bars.
+    return [26, 24]; // Step 3: both hands together — yellow + green POP.
   }
   freeLaneForNote(note) {
+    if (Array.isArray(note)) return 18;
     if (note === 24) return 21;
     if (note === 26) return 15;
     if (note === 34) return 9;
@@ -150,11 +158,11 @@ export class SpaceshipAsteroidsSim {
     const seq = this.nextFreeSeq++;
     const note = this.freeNoteForSeq(seq);
     const big = forcedSize ?? (this.bestCombo >= 32 && seq % 8 === 7);
-    const hp = big ? 2 : 1;
+    const hp = Array.isArray(note) ? 2 : (big ? 2 : 1);
     const y = this.freeLaneForNote(note);
     const targetMs = Math.max(this.nextFreeTargetMs, nowMs + FREE_TARGET_DELAY_MS);
     const speed = 0.0035 + Math.min(this.level, 6) * 0.00035;
-    this.asteroids.push({ id: this.nextId++, note, x: ASTEROID_START_X, y, r: big ? 5 : 4, hp, maxHp: hp, speed, born: nowMs, targetMs, freeBeat: true });
+    this.asteroids.push({ id: this.nextId++, note, hits: [], x: ASTEROID_START_X, y, r: (big || Array.isArray(note)) ? 5 : 4, hp, maxHp: hp, speed, born: nowMs, targetMs, freeBeat: true });
     this.nextFreeTargetMs = targetMs + FREE_BEAT_MS;
     this.lastSpawnMs = nowMs;
   }
@@ -267,7 +275,7 @@ export class SpaceshipAsteroidsSim {
     const color = padColor(note);
     this.shipFlashMs = nowMs;
     const nearestAny = [...this.asteroids].sort((a,b) => Math.abs((a.targetMs ?? 0) - nowMs) - Math.abs((b.targetMs ?? 0) - nowMs))[0];
-    const candidates = this.asteroids.filter(a => a.note === note).sort((a,b) => Math.abs((a.targetMs ?? 0) - nowMs) - Math.abs((b.targetMs ?? 0) - nowMs));
+    const candidates = this.asteroids.filter(a => noteMatches(a.note, note)).sort((a,b) => Math.abs((a.targetMs ?? 0) - nowMs) - Math.abs((b.targetMs ?? 0) - nowMs));
     const target = candidates[0];
     const laserTarget = target ? { x: target.x, y: target.y } : nearestAny ? { x: nearestAny.x, y: nearestAny.y } : { x: 63, y: SHIP_Y };
     this.aimX = laserTarget.x;
@@ -275,13 +283,23 @@ export class SpaceshipAsteroidsSim {
     this.aimUntilMs = nowMs + 260;
     this.lasers.push({ note, color, at: nowMs, targetX: laserTarget.x, targetY: laserTarget.y, locked: Boolean(target) });
     if (!target) {
-      const want = BY_TRD_NOTE.get(nearestAny?.note)?.label || "matching color";
+      const want = nearestAny ? padLabel(nearestAny.note) : "matching color";
       this.lastJudgement = `wrong color — try ${want}`;
       return false;
     }
     const dt = nowMs - target.targetMs;
     const timingScore = Math.abs(dt);
     const perfectBeat = timingScore <= 110;
+    if (Array.isArray(target.note)) {
+      target.hits = target.hits || [];
+      if (!target.hits.includes(note)) target.hits.push(note);
+      if (target.hits.length < target.note.length) {
+        this.breakApart(target.x, target.y, color, nowMs, 1, 300, target.id, { perfect: false });
+        this.lastJudgement = "one hand — now POP both yellow + green together";
+        return true;
+      }
+      target.hp = 1;
+    }
     target.hp--;
     const basePower = target.hp > 0 ? 1 : 3 + Math.floor(this.combo / 3);
     const power = basePower + (perfectBeat ? 2 : 0);
@@ -299,12 +317,12 @@ export class SpaceshipAsteroidsSim {
     this.combo++;
     this.bestCombo = Math.max(this.bestCombo, this.combo);
     this.updateLevel();
-    const pad = BY_TRD_NOTE.get(note);
+    const label = Array.isArray(target.note) ? padLabel(target.note) : (BY_TRD_NOTE.get(note)?.label || note);
     let feel = perfectBeat ? "PERFECT BEAT BLAST" : "on the beat";
     if (dt < -FREE_EARLY_MS) feel = "early blast — next one on the pulse";
     else if (dt > FREE_LATE_MS) feel = "late blast — try the next pulse";
     else if (!perfectBeat) feel = dt < 0 ? "nice anticipation" : "good recovery";
-    this.lastJudgement = `${feel} ${pad?.label || note}! score ${this.score} combo x${this.combo}`;
+    this.lastJudgement = `${feel} ${label}! score ${this.score} combo x${this.combo}`;
     return true;
   }
   drawStars(px, nowMs) {
@@ -409,6 +427,7 @@ export class SpaceshipAsteroidsSim {
   drawAsteroids(px, performanceNowHint = 0) {
     for (const a of this.asteroids) {
       const color = padColor(a.note);
+      const colors = padColors(a.note);
       const beatGlow = a.freeBeat && Math.abs((a.targetMs ?? 0) - performanceNowHint) < 180 ? 0.65 : 0;
       const rr = a.r + Math.round(beatGlow * 1.5);
       // Arcade Asteroids-style lumpy wireframe, with drum color as the teaching cue.
@@ -418,6 +437,14 @@ export class SpaceshipAsteroidsSim {
         [-0.22, 0.45], [-0.82, 0.72], [-1.05, 0.08]
       ].map(([dx, dy]) => [a.x + dx * rr, a.y + dy * rr]);
       if (beatGlow > 0) fillCircle(px, a.x, a.y, rr + 2, color, beatGlow * 0.28);
+      if (colors.length > 1) {
+        fillCircle(px, a.x - 2, a.y, Math.max(2, rr - 1), colors[0], 0.62);
+        fillCircle(px, a.x + 2, a.y, Math.max(2, rr - 1), colors[1], 0.62);
+        line(px, a.x, a.y - rr, a.x, a.y + rr, [245,245,230], 0.55);
+      } else {
+        fillCircle(px, a.x, a.y, Math.max(2, rr - 1), color, 0.54);
+        fillCircle(px, a.x - 1, a.y - 1, Math.max(1, rr - 3), [255,255,255], 0.10);
+      }
       for (let i = 0; i < pts.length; i++) {
         const [x0, y0] = pts[i];
         const [x1, y1] = pts[(i + 1) % pts.length];
