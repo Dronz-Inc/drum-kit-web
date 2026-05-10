@@ -51,6 +51,8 @@ let midiAccess, currentInput, msgCount = 0;
 let matrixPort, matrixWriter, matrixSeq = 0, matrixPackets = 0, matrixWriteInFlight = false, lastMatrixFrameMs = 0;
 const MATRIX_STREAM_BAUD = 921600;
 const MATRIX_STREAM_FPS = 20;
+const INPUT_REFIRE_COOLDOWN_MS = 170;
+const lastInputShotByNote = new Map();
 
 for (const lesson of LESSONS) lessonEl.appendChild(new Option(lesson.name, lesson.id));
 lessonEl.value = 'free';
@@ -88,7 +90,15 @@ async function writeMatrixFrame(frame){
   finally{matrixWriteInFlight=false;}
 }
 async function shoot(note, source){
-  const ok=sim.shoot(note, performance.now());
+  const now=performance.now();
+  const lastNote=lastInputShotByNote.get(note);
+  if(lastNote!=null && now-lastNote<INPUT_REFIRE_COOLDOWN_MS){
+    stateEl.textContent='cooldown — wait for the next asteroid';
+    log(`${source} · cooldown`);
+    return;
+  }
+  lastInputShotByNote.set(note, now);
+  const ok=sim.shoot(note, now);
   stateEl.textContent=sim.lastJudgement;
   log(`${source} ${ok?'✅':'·'} ${sim.lastJudgement}`);
 }

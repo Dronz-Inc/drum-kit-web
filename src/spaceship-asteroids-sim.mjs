@@ -19,7 +19,7 @@ const FREE_TARGET_X = 44;
 const FREE_EARLY_MS = 360;
 const FREE_LATE_MS = 420;
 const FREE_SWEET_MS = 110;
-const REFIRE_COOLDOWN_MS = 145;
+const REFIRE_COOLDOWN_MS = 170;
 const ASTEROID_COLORS = [24, 26, 34, 37, 45, 39, 31, 35, 36];
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
@@ -295,7 +295,7 @@ export class SpaceshipAsteroidsSim {
     const color = padColor(note);
     const lastShotMs = this.lastShotByNote.get(note);
     if (lastShotMs != null && nowMs - lastShotMs < REFIRE_COOLDOWN_MS) {
-      this.lastJudgement = "wait for the next asteroid";
+      this.lastJudgement = "cooldown — wait for the next asteroid";
       return false;
     }
     this.lastShotByNote.set(note, nowMs);
