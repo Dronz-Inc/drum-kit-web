@@ -11,9 +11,9 @@ const LESSON_FIRST_TARGET_MS = 2400;
 const LESSON_EARLY_MS = 180;
 const LESSON_LATE_MS = 220;
 const FREE_TEMPO_TIERS = Object.freeze([
-  { bpm: 72, targetDelayMs: 3000, label: "slow" },
-  { bpm: 88, targetDelayMs: 2600, label: "medium" },
-  { bpm: 104, targetDelayMs: 2300, label: "fast" }
+  { bpm: 104, targetDelayMs: 2300, label: "fast" },
+  { bpm: 120, targetDelayMs: 2100, label: "faster" },
+  { bpm: 136, targetDelayMs: 1900, label: "fastest" }
 ]);
 const FREE_TARGET_X = 44;
 const FREE_EARLY_MS = 360;
@@ -105,6 +105,9 @@ export class SpaceshipAsteroidsSim {
     this.score = 0;
     this.combo = 0;
     this.bestCombo = 0;
+    this.cleanLoopHits = 0;
+    this.loopClean = true;
+    this.tempoIndex = 0;
     this.level = 1;
     this.nextFreeSeq = 0;
     this.nextFreeTargetMs = nowMs + this.freeTargetDelayMs();
@@ -121,14 +124,14 @@ export class SpaceshipAsteroidsSim {
   maxAsteroids() {
     return this.popcornStage() >= 16 ? 2 : 1;
   }
-  updateLevel() { this.level = 1 + Math.floor(this.bestCombo / 8); }
-  tempoTier() { return FREE_TEMPO_TIERS[Math.min(FREE_TEMPO_TIERS.length - 1, Math.floor(this.bestCombo / 24))]; }
+  updateLevel() { this.level = 1 + this.tempoIndex; }
+  tempoTier() { return FREE_TEMPO_TIERS[this.tempoIndex]; }
   freeBeatMs() { return 60000 / this.tempoTier().bpm; }
   freeTargetDelayMs() { return this.tempoTier().targetDelayMs; }
-  popcornStage() { return this.bestCombo % 24; }
+  popcornStage() { return this.cleanLoopHits % 20; }
   freeNoteForSeq(seq) {
     const stage = this.popcornStage();
-    if (stage < 8) return [26, 24, 26, 24][seq & 3]; // Step 1: L R L R, with L=snare and R=kick.
+    if (stage < 8) return [26, 24, 26, 24][seq & 3]; // Step 1: L R L R, L R L R.
     if (stage < 16) return [26, 26, 24, 24][seq & 3]; // Step 2: L L R R for a couple of bars.
     return [26, 24]; // Step 3: both hands together — two asteroids, same beat.
   }
@@ -323,11 +326,16 @@ export class SpaceshipAsteroidsSim {
       this.lastJudgement = `one hand — now POP ${padLabel(other.note)}`;
       return true;
     }
-    const previousBest = this.bestCombo;
     this.score++;
     this.combo++;
     this.bestCombo = Math.max(this.bestCombo, this.combo);
-    if (Math.floor(previousBest / 24) < Math.floor(this.bestCombo / 24)) {
+    const cleanTiming = dt <= 110;
+    if (!cleanTiming) this.loopClean = false;
+    this.cleanLoopHits++;
+    if (this.cleanLoopHits >= 20) {
+      if (this.loopClean) this.tempoIndex = Math.min(FREE_TEMPO_TIERS.length - 1, this.tempoIndex + 1);
+      this.cleanLoopHits = 0;
+      this.loopClean = true;
       this.asteroids = [];
       this.nextFreeSeq = 0;
       this.nextFreeTargetMs = nowMs + this.freeBeatMs();
