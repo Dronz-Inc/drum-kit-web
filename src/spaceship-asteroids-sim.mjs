@@ -19,6 +19,7 @@ const FREE_TARGET_X = 44;
 const FREE_EARLY_MS = 360;
 const FREE_LATE_MS = 420;
 const FREE_SWEET_MS = 110;
+const REFIRE_COOLDOWN_MS = 145;
 const ASTEROID_COLORS = [24, 26, 34, 37, 45, 39, 31, 35, 36];
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
@@ -103,6 +104,7 @@ export class SpaceshipAsteroidsSim {
     this.asteroids = [];
     this.lasers = [];
     this.explosions = [];
+    this.lastShotByNote = new Map();
     this.score = 0;
     this.combo = 0;
     this.bestCombo = 0;
@@ -291,6 +293,12 @@ export class SpaceshipAsteroidsSim {
     if (this.lessonMode) return this.shootLesson(note, nowMs);
     this.update(nowMs);
     const color = padColor(note);
+    const lastShotMs = this.lastShotByNote.get(note);
+    if (lastShotMs != null && nowMs - lastShotMs < REFIRE_COOLDOWN_MS) {
+      this.lastJudgement = "wait for the next asteroid";
+      return false;
+    }
+    this.lastShotByNote.set(note, nowMs);
     this.shipFlashMs = nowMs;
     const nearestAny = [...this.asteroids].sort((a,b) => Math.abs((a.targetMs ?? 0) - nowMs) - Math.abs((b.targetMs ?? 0) - nowMs))[0];
     const candidates = this.asteroids.filter(a => noteMatches(a.note, note)).sort((a,b) => Math.abs((a.targetMs ?? 0) - nowMs) - Math.abs((b.targetMs ?? 0) - nowMs));
