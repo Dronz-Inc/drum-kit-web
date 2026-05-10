@@ -10,9 +10,11 @@ const ASTEROID_START_X = 66;
 const LESSON_FIRST_TARGET_MS = 2400;
 const LESSON_EARLY_MS = 180;
 const LESSON_LATE_MS = 220;
-const FREE_BPM = 60;
-const FREE_BEAT_MS = 60000 / FREE_BPM;
-const FREE_TARGET_DELAY_MS = 3600;
+const FREE_TEMPO_TIERS = Object.freeze([
+  { bpm: 60, targetDelayMs: 3600, label: "slow" },
+  { bpm: 72, targetDelayMs: 3200, label: "medium" },
+  { bpm: 84, targetDelayMs: 2800, label: "fast" }
+]);
 const FREE_TARGET_X = 44;
 const FREE_EARLY_MS = 360;
 const FREE_LATE_MS = 420;
@@ -97,8 +99,6 @@ export class SpaceshipAsteroidsSim {
     this.lessonStartMs = nowMs;
     this.nextLessonSeq = 0;
     this.lastSpawnMs = nowMs - 900;
-    this.nextFreeSeq = 0;
-    this.nextFreeTargetMs = nowMs + FREE_TARGET_DELAY_MS;
     this.asteroids = [];
     this.lasers = [];
     this.explosions = [];
@@ -106,6 +106,8 @@ export class SpaceshipAsteroidsSim {
     this.combo = 0;
     this.bestCombo = 0;
     this.level = 1;
+    this.nextFreeSeq = 0;
+    this.nextFreeTargetMs = nowMs + this.freeTargetDelayMs();
     this.nextId = 1;
     this.shipFlashMs = -9999;
     this.aimUntilMs = -9999;
@@ -122,9 +124,14 @@ export class SpaceshipAsteroidsSim {
     return 3;
   }
   updateLevel() { this.level = 1 + Math.floor(this.bestCombo / 8); }
+  tempoTier() { return FREE_TEMPO_TIERS[Math.min(FREE_TEMPO_TIERS.length - 1, Math.floor(this.bestCombo / 24))]; }
+  freeBeatMs() { return 60000 / this.tempoTier().bpm; }
+  freeTargetDelayMs() { return this.tempoTier().targetDelayMs; }
+  popcornStage() { return this.bestCombo % 24; }
   freeNoteForSeq(seq) {
-    if (this.bestCombo < 8) return [26, 24, 26, 24][seq & 3]; // Step 1: L R L R, with L=snare and R=kick.
-    if (this.bestCombo < 16) return [26, 26, 24, 24][seq & 3]; // Step 2: L L R R for a couple of bars.
+    const stage = this.popcornStage();
+    if (stage < 8) return [26, 24, 26, 24][seq & 3]; // Step 1: L R L R, with L=snare and R=kick.
+    if (stage < 16) return [26, 26, 24, 24][seq & 3]; // Step 2: L L R R for a couple of bars.
     return [26, 24]; // Step 3: both hands together — yellow + green POP.
   }
   freeLaneForNote(note) {
@@ -135,8 +142,9 @@ export class SpaceshipAsteroidsSim {
     return 6 + ((this.nextFreeSeq * 7 + note) % 21);
   }
   beatPulse(nowMs) {
-    const phase = ((nowMs - this.startMs - FREE_TARGET_DELAY_MS) % FREE_BEAT_MS + FREE_BEAT_MS) % FREE_BEAT_MS;
-    return Math.max(0, 1 - Math.min(phase, FREE_BEAT_MS - phase) / 120);
+    const beatMs = this.freeBeatMs();
+    const phase = ((nowMs - this.startMs - this.freeTargetDelayMs()) % beatMs + beatMs) % beatMs;
+    return Math.max(0, 1 - Math.min(phase, beatMs - phase) / 120);
   }
   breakApart(x, y, color, nowMs, power = 3, ttl = 720, seed = this.nextId, { perfect = false } = {}) {
     const fragments = [];
@@ -160,10 +168,12 @@ export class SpaceshipAsteroidsSim {
     const big = forcedSize ?? (this.bestCombo >= 32 && seq % 8 === 7);
     const hp = Array.isArray(note) ? 2 : (big ? 2 : 1);
     const y = this.freeLaneForNote(note);
-    const targetMs = Math.max(this.nextFreeTargetMs, nowMs + FREE_TARGET_DELAY_MS);
+    const beatMs = this.freeBeatMs();
+    const targetDelayMs = this.freeTargetDelayMs();
+    const targetMs = Math.max(this.nextFreeTargetMs, nowMs + targetDelayMs);
     const speed = 0.0035 + Math.min(this.level, 6) * 0.00035;
     this.asteroids.push({ id: this.nextId++, note, hits: [], x: ASTEROID_START_X, y, r: (big || Array.isArray(note)) ? 5 : 4, hp, maxHp: hp, speed, born: nowMs, targetMs, freeBeat: true });
-    this.nextFreeTargetMs = targetMs + FREE_BEAT_MS;
+    this.nextFreeTargetMs = targetMs + beatMs;
     this.lastSpawnMs = nowMs;
   }
 
@@ -217,11 +227,11 @@ export class SpaceshipAsteroidsSim {
   update(nowMs) {
     if (this.lessonMode) { this.updateLessonAsteroids(nowMs); return; }
     this.updateLevel();
-    while (this.asteroids.length < this.maxAsteroids() && nowMs >= this.nextFreeTargetMs - FREE_TARGET_DELAY_MS) this.spawnAsteroid(nowMs);
+    while (this.asteroids.length < this.maxAsteroids() && nowMs >= this.nextFreeTargetMs - this.freeTargetDelayMs()) this.spawnAsteroid(nowMs);
     for (const a of this.asteroids) {
       const dt = Math.max(0, nowMs - (a.lastMs || nowMs));
       if (a.freeBeat && nowMs <= a.targetMs) {
-        const progress = 1 - (a.targetMs - nowMs) / FREE_TARGET_DELAY_MS;
+        const progress = 1 - (a.targetMs - nowMs) / this.freeTargetDelayMs();
         a.x = lerp(ASTEROID_START_X, FREE_TARGET_X, progress);
       } else {
         a.x -= a.speed * dt;
@@ -308,7 +318,7 @@ export class SpaceshipAsteroidsSim {
     if (target.hp > 0) {
       target.r = Math.max(2, target.r - 1);
       target.x += 3;
-      target.targetMs += FREE_BEAT_MS * 2;
+      target.targetMs += this.freeBeatMs() * 2;
       this.lastJudgement = "cracked — hit the next beat to finish it";
       return true;
     }
