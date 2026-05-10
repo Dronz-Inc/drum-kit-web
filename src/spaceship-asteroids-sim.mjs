@@ -11,9 +11,9 @@ const LESSON_FIRST_TARGET_MS = 2400;
 const LESSON_EARLY_MS = 180;
 const LESSON_LATE_MS = 220;
 const FREE_TEMPO_TIERS = Object.freeze([
-  { bpm: 104, targetDelayMs: 2300, label: "fast" },
-  { bpm: 120, targetDelayMs: 2100, label: "faster" },
-  { bpm: 136, targetDelayMs: 1900, label: "fastest" }
+  { bpm: 156, targetDelayMs: 1530, label: "fast" },
+  { bpm: 180, targetDelayMs: 1400, label: "faster" },
+  { bpm: 204, targetDelayMs: 1270, label: "fastest" }
 ]);
 const FREE_TARGET_X = 44;
 const FREE_EARLY_MS = 360;
@@ -55,7 +55,7 @@ export const LESSONS = Object.freeze([
   {
     id: "free",
     name: "Free Asteroids",
-    description: "Popcorn Hands: yellow snare = LEFT, green kick = RIGHT, then yellow+green POP.",
+    description: "Popcorn Hands: L-R-L-R twice, R-R-L-L twice, then yellow+green POP x4.",
     mode: "free"
   },
   {
@@ -133,8 +133,8 @@ export class SpaceshipAsteroidsSim {
   freeNoteForSeq(seq) {
     const stage = this.popcornStage();
     if (stage < 8) return [26, 24, 26, 24][seq & 3]; // Step 1: L R L R, L R L R.
-    if (stage < 16) return [26, 26, 24, 24][seq & 3]; // Step 2: L L R R for a couple of bars.
-    return [26, 24]; // Step 3: both hands together — two asteroids, same beat.
+    if (stage < 16) return [24, 24, 26, 26][seq & 3]; // Step 2: R R L L, R R L L.
+    return [26, 24]; // Step 3: both hands together x4 — two asteroids, same beat.
   }
   freeLaneForNote(note) {
     if (Array.isArray(note)) return 18;
