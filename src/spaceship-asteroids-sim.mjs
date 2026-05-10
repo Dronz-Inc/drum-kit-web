@@ -11,9 +11,9 @@ const LESSON_FIRST_TARGET_MS = 2400;
 const LESSON_EARLY_MS = 180;
 const LESSON_LATE_MS = 220;
 const FREE_TEMPO_TIERS = Object.freeze([
-  { bpm: 156, targetDelayMs: 1530, label: "fast" },
-  { bpm: 180, targetDelayMs: 1400, label: "faster" },
-  { bpm: 204, targetDelayMs: 1270, label: "fastest" }
+  { bpm: 312, targetDelayMs: 765, label: "fast" },
+  { bpm: 360, targetDelayMs: 700, label: "faster" },
+  { bpm: 408, targetDelayMs: 635, label: "fastest" }
 ]);
 const FREE_TARGET_X = 44;
 const FREE_EARLY_MS = 360;
