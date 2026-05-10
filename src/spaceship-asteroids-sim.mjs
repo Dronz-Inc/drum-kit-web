@@ -10,12 +10,12 @@ const ASTEROID_START_X = 66;
 const LESSON_FIRST_TARGET_MS = 2400;
 const LESSON_EARLY_MS = 180;
 const LESSON_LATE_MS = 220;
-const FREE_BPM = 86;
+const FREE_BPM = 60;
 const FREE_BEAT_MS = 60000 / FREE_BPM;
-const FREE_TARGET_DELAY_MS = 900;
+const FREE_TARGET_DELAY_MS = 3600;
 const FREE_TARGET_X = 44;
-const FREE_EARLY_MS = 220;
-const FREE_LATE_MS = 260;
+const FREE_EARLY_MS = 360;
+const FREE_LATE_MS = 420;
 const ASTEROID_COLORS = [24, 26, 34, 37, 45, 39, 31, 35, 36];
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
@@ -44,7 +44,7 @@ export const LESSONS = Object.freeze([
   {
     id: "free",
     name: "Free Asteroids",
-    description: "Arcade mode with hidden drum timing: snare first, then kick/snare, then fills.",
+    description: "Easy musical asteroid mode: slow snare pulse first, then kick/snare, then fills after steady success.",
     mode: "free"
   },
   {
@@ -96,24 +96,29 @@ export class SpaceshipAsteroidsSim {
     this.explosions = [];
     this.score = 0;
     this.combo = 0;
+    this.bestCombo = 0;
     this.level = 1;
     this.nextId = 1;
     this.shipFlashMs = -9999;
     this.aimUntilMs = -9999;
     this.aimX = SHIP_X + 18;
     this.aimY = SHIP_Y;
-    this.lastJudgement = this.lessonMode ? `${this.lesson.name}: wait for the asteroid to touch the beat line` : "Free Asteroids: shoot the color on the beat";
+    this.lastJudgement = this.lessonMode ? `${this.lesson.name}: wait for the asteroid to touch the beat line` : "Free Asteroids: slow snare pulse — match the color, then try the beat";
     if (this.lessonMode) this.ensureLessonAsteroids(nowMs);
     else this.spawnAsteroid(nowMs);
   }
-  spawnDelay() { return Math.max(850, 1900 - this.level * 150); }
-  maxAsteroids() { return Math.min(1 + Math.floor(this.level / 3), 4); }
-  updateLevel() { this.level = 1 + Math.floor(this.score / 5); }
+  spawnDelay() { return 2600; }
+  maxAsteroids() {
+    if (this.bestCombo < 24) return 1;
+    if (this.bestCombo < 40) return 2;
+    return 3;
+  }
+  updateLevel() { this.level = 1 + Math.floor(this.bestCombo / 8); }
   freeNoteForSeq(seq) {
-    if (this.score < 4) return 26; // Start with snare: one color, one pulse.
-    if (this.score < 10) return (seq & 1) ? 26 : 24; // Then kick/snare rock skeleton.
-    if (this.score < 18) return [24, 34, 26, 34][seq & 3]; // Add hi-hat timekeeping.
-    return [24, 34, 26, 34, 31, 35, 36, 37][seq & 7]; // Then fills/crash color variation.
+    if (this.bestCombo < 8) return 26; // Step 1: one color, one slow snare pulse.
+    if (this.bestCombo < 18) return [24, 26][seq & 1]; // Step 2: simple kick/snare rock skeleton.
+    if (this.bestCombo < 32) return [24, 34, 26, 34][seq & 3]; // Step 3: add hi-hat timekeeping.
+    return [24, 34, 26, 34, 31, 35, 36, 37][seq & 7]; // Step 4: fills only after the basics are clear.
   }
   freeLaneForNote(note) {
     if (note === 24) return 21;
@@ -144,11 +149,11 @@ export class SpaceshipAsteroidsSim {
   spawnAsteroid(nowMs, forcedSize = null) {
     const seq = this.nextFreeSeq++;
     const note = this.freeNoteForSeq(seq);
-    const big = forcedSize ?? (this.score >= 14 && seq % 6 === 5);
+    const big = forcedSize ?? (this.bestCombo >= 32 && seq % 8 === 7);
     const hp = big ? 2 : 1;
     const y = this.freeLaneForNote(note);
     const targetMs = Math.max(this.nextFreeTargetMs, nowMs + FREE_TARGET_DELAY_MS);
-    const speed = 0.010 + this.level * 0.0007;
+    const speed = 0.0035 + Math.min(this.level, 6) * 0.00035;
     this.asteroids.push({ id: this.nextId++, note, x: ASTEROID_START_X, y, r: big ? 5 : 4, hp, maxHp: hp, speed, born: nowMs, targetMs, freeBeat: true });
     this.nextFreeTargetMs = targetMs + FREE_BEAT_MS;
     this.lastSpawnMs = nowMs;
@@ -285,13 +290,14 @@ export class SpaceshipAsteroidsSim {
     if (target.hp > 0) {
       target.r = Math.max(2, target.r - 1);
       target.x += 3;
-      target.targetMs += FREE_BEAT_MS;
+      target.targetMs += FREE_BEAT_MS * 2;
       this.lastJudgement = "cracked — hit the next beat to finish it";
       return true;
     }
     this.asteroids = this.asteroids.filter(a => a !== target);
     this.score++;
     this.combo++;
+    this.bestCombo = Math.max(this.bestCombo, this.combo);
     this.updateLevel();
     const pad = BY_TRD_NOTE.get(note);
     let feel = perfectBeat ? "PERFECT BEAT BLAST" : "on the beat";
