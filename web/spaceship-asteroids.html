@@ -34,7 +34,6 @@
 </main>
 <script type="module">
 import { TRD_PADS, parseMidiMessage } from "../src/trd-mapping.mjs";
-import { encodeHit, encodeStart } from "../src/matrix-protocol.mjs";
 import { LESSONS, SpaceshipAsteroidsSim } from "../src/spaceship-asteroids-sim.mjs";
 
 const sim = new SpaceshipAsteroidsSim();
@@ -49,7 +48,9 @@ const scoreEl = document.getElementById('score');
 const px = [];
 const receiveLatencies = [];
 let midiAccess, currentInput, msgCount = 0;
-let matrixPort, matrixWriter, matrixSeq = 0, matrixPackets = 0;
+let matrixPort, matrixWriter, matrixSeq = 0, matrixPackets = 0, matrixWriteInFlight = false, lastMatrixFrameMs = 0;
+const MATRIX_STREAM_BAUD = 921600;
+const MATRIX_STREAM_FPS = 20;
 
 for (const lesson of LESSONS) lessonEl.appendChild(new Option(lesson.name, lesson.id));
 lessonEl.value = 'free';
@@ -71,26 +72,31 @@ for (const pad of usablePads) {
   padsEl.appendChild(b);
 }
 function log(s){logEl.textContent=`${new Date().toLocaleTimeString()} ${s}\n`+logEl.textContent.slice(0,3000)}
-async function writeMatrixPacket(packet){
-  if(!matrixWriter)return;
-  try{await matrixWriter.write(packet); matrixPackets++;}
-  catch(err){log(`matrix write failed: ${err.message || err}`); stateEl.textContent='MatrixPortal disconnected?'; matrixWriter=null;}
-}
 function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
-async function sendMatrixStart(){
-  // Opening a Web Serial connection resets Arduino/SAMD boards. Send a few
-  // start packets so the MatrixPortal does not miss the first one while rebooting.
-  for(let i=0;i<3;i++){await writeMatrixPacket(encodeStart({sequence:matrixSeq++})); await sleep(80);}
+function rgb332([r,g,b]){return ((r>>5)<<5)|((g>>5)<<2)|(b>>6);}
+function encodeFrame(frame){
+  const packet=new Uint8Array(5+64*32);
+  packet[0]=0xA5; packet[1]=0x02; packet[2]=matrixSeq++ & 0xFF; packet[3]=64; packet[4]=32;
+  let i=5; for(const row of frame) for(const px of row) packet[i++]=rgb332(px);
+  return packet;
+}
+async function writeMatrixFrame(frame){
+  if(!matrixWriter || matrixWriteInFlight)return;
+  matrixWriteInFlight=true;
+  try{await matrixWriter.write(encodeFrame(frame)); matrixPackets++;}
+  catch(err){log(`matrix frame write failed: ${err.message || err}`); stateEl.textContent='MatrixPortal disconnected?'; matrixWriter=null;}
+  finally{matrixWriteInFlight=false;}
 }
 async function shoot(note, source){
   const ok=sim.shoot(note, performance.now());
-  if(source==='midi' || source==='button') await writeMatrixPacket(encodeHit({note, velocity:100, ttlMs:520, sequence:matrixSeq++}));
   stateEl.textContent=sim.lastJudgement;
   log(`${source} ${ok?'✅':'·'} ${sim.lastJudgement}`);
 }
 function render(){
-  const frame=sim.frame(performance.now());
+  const now=performance.now();
+  const frame=sim.frame(now);
   let i=0; for(const row of frame) for(const [r,g,b] of row) px[i++].style.backgroundColor=`rgb(${r},${g},${b})`;
+  if(matrixWriter && now-lastMatrixFrameMs >= 1000/MATRIX_STREAM_FPS){lastMatrixFrameMs=now; writeMatrixFrame(frame);}
   scoreEl.textContent=`Score ${sim.score} · L${sim.level} · Combo x${sim.combo}`;
   requestAnimationFrame(render);
 }
@@ -100,20 +106,20 @@ function updateStats(){
   statsEl.innerHTML=`<div class=stat><span>MIDI messages</span><b>${msgCount}</b></div><div class=stat><span>Matrix packets</span><b>${matrixPackets}</b></div><div class=stat><span>receive median</span><b>${pct(.5).toFixed(2)} ms</b></div><div class=stat><span>receive p95</span><b>${pct(.95).toFixed(2)} ms</b></div>`;
 }
 setInterval(updateStats,300);
-document.getElementById('reset').onclick=async()=>{sim.reset(performance.now(), { lessonId: lessonEl.value });await sendMatrixStart();stateEl.textContent=sim.lesson.description || 'new space run started';log(`reset ${sim.lesson.name}`)};
+document.getElementById('reset').onclick=async()=>{sim.reset(performance.now(), { lessonId: lessonEl.value });stateEl.textContent=sim.lesson.description || 'new space run started';log(`reset ${sim.lesson.name}`)};
 document.getElementById('connectMatrix').onclick=async()=>{
   if(!navigator.serial){stateEl.textContent='Web Serial unsupported; use Chrome/Edge';return;}
   try{
-    if(matrixWriter){await sendMatrixStart();stateEl.textContent='MatrixPortal connected';log('matrix start resent');return;}
+    if(matrixWriter){stateEl.textContent='MatrixPortal frame stream connected';log('matrix frame stream already connected');return;}
     matrixPort=await navigator.serial.requestPort({filters:[{usbVendorId:0x239A}]});
-    await matrixPort.open({baudRate:115200});
+    await matrixPort.open({baudRate:MATRIX_STREAM_BAUD});
     matrixWriter=matrixPort.writable.getWriter();
-    stateEl.textContent='MatrixPortal connected — waiting for board reboot';
-    log('matrix serial opened; waiting for MatrixPortal reboot');
+    stateEl.textContent='MatrixPortal connected — waiting for frame firmware reboot';
+    log('matrix serial opened at 921600; waiting for MatrixPortal reboot');
     await sleep(1800);
-    await sendMatrixStart();
-    stateEl.textContent='MatrixPortal connected';
-    log('matrix connected — serial packets enabled');
+    lastMatrixFrameMs=0;
+    stateEl.textContent='MatrixPortal frame stream connected';
+    log('matrix connected — streaming asteroid frames');
   }catch(err){stateEl.textContent='MatrixPortal connect cancelled/failed';log(`matrix connect failed: ${err.message || err}`);}
 };
 document.getElementById('startMidi').onclick=async()=>{
