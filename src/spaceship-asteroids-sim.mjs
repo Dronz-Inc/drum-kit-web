@@ -11,9 +11,9 @@ const LESSON_FIRST_TARGET_MS = 2400;
 const LESSON_EARLY_MS = 180;
 const LESSON_LATE_MS = 220;
 const FREE_TEMPO_TIERS = Object.freeze([
-  { bpm: 60, targetDelayMs: 3600, label: "slow" },
-  { bpm: 72, targetDelayMs: 3200, label: "medium" },
-  { bpm: 84, targetDelayMs: 2800, label: "fast" }
+  { bpm: 72, targetDelayMs: 3000, label: "slow" },
+  { bpm: 88, targetDelayMs: 2600, label: "medium" },
+  { bpm: 104, targetDelayMs: 2300, label: "fast" }
 ]);
 const FREE_TARGET_X = 44;
 const FREE_EARLY_MS = 360;
@@ -119,9 +119,7 @@ export class SpaceshipAsteroidsSim {
   }
   spawnDelay() { return 2600; }
   maxAsteroids() {
-    if (this.bestCombo < 24) return 1;
-    if (this.bestCombo < 40) return 2;
-    return 3;
+    return this.popcornStage() >= 16 ? 2 : 1;
   }
   updateLevel() { this.level = 1 + Math.floor(this.bestCombo / 8); }
   tempoTier() { return FREE_TEMPO_TIERS[Math.min(FREE_TEMPO_TIERS.length - 1, Math.floor(this.bestCombo / 24))]; }
@@ -132,7 +130,7 @@ export class SpaceshipAsteroidsSim {
     const stage = this.popcornStage();
     if (stage < 8) return [26, 24, 26, 24][seq & 3]; // Step 1: L R L R, with L=snare and R=kick.
     if (stage < 16) return [26, 26, 24, 24][seq & 3]; // Step 2: L L R R for a couple of bars.
-    return [26, 24]; // Step 3: both hands together — yellow + green POP.
+    return [26, 24]; // Step 3: both hands together — two asteroids, same beat.
   }
   freeLaneForNote(note) {
     if (Array.isArray(note)) return 18;
@@ -166,13 +164,19 @@ export class SpaceshipAsteroidsSim {
     const seq = this.nextFreeSeq++;
     const note = this.freeNoteForSeq(seq);
     const big = forcedSize ?? (this.bestCombo >= 32 && seq % 8 === 7);
-    const hp = Array.isArray(note) ? 2 : (big ? 2 : 1);
-    const y = this.freeLaneForNote(note);
     const beatMs = this.freeBeatMs();
     const targetDelayMs = this.freeTargetDelayMs();
     const targetMs = Math.max(this.nextFreeTargetMs, nowMs + targetDelayMs);
-    const speed = 0.0035 + Math.min(this.level, 6) * 0.00035;
-    this.asteroids.push({ id: this.nextId++, note, hits: [], x: ASTEROID_START_X, y, r: (big || Array.isArray(note)) ? 5 : 4, hp, maxHp: hp, speed, born: nowMs, targetMs, freeBeat: true });
+    const speed = 0.0048 + Math.min(this.level, 6) * 0.00045;
+    if (Array.isArray(note)) {
+      const group = this.nextId++;
+      const lanes = [13, 23];
+      note.forEach((n, i) => this.asteroids.push({ id: this.nextId++, group, paired: true, note: n, hits: [], x: ASTEROID_START_X, y: lanes[i] ?? this.freeLaneForNote(n), r: 4, hp: 1, maxHp: 1, speed, born: nowMs, targetMs, freeBeat: true }));
+    } else {
+      const hp = big ? 2 : 1;
+      const y = this.freeLaneForNote(note);
+      this.asteroids.push({ id: this.nextId++, note, hits: [], x: ASTEROID_START_X, y, r: big ? 5 : 4, hp, maxHp: hp, speed, born: nowMs, targetMs, freeBeat: true });
+    }
     this.nextFreeTargetMs = targetMs + beatMs;
     this.lastSpawnMs = nowMs;
   }
@@ -300,16 +304,6 @@ export class SpaceshipAsteroidsSim {
     const dt = nowMs - target.targetMs;
     const timingScore = Math.abs(dt);
     const perfectBeat = timingScore <= 110;
-    if (Array.isArray(target.note)) {
-      target.hits = target.hits || [];
-      if (!target.hits.includes(note)) target.hits.push(note);
-      if (target.hits.length < target.note.length) {
-        this.breakApart(target.x, target.y, color, nowMs, 1, 300, target.id, { perfect: false });
-        this.lastJudgement = "one hand — now POP both yellow + green together";
-        return true;
-      }
-      target.hp = 1;
-    }
     target.hp--;
     const basePower = target.hp > 0 ? 1 : 3 + Math.floor(this.combo / 3);
     const power = basePower + (perfectBeat ? 2 : 0);
@@ -322,12 +316,24 @@ export class SpaceshipAsteroidsSim {
       this.lastJudgement = "cracked — hit the next beat to finish it";
       return true;
     }
+    const group = target.group;
     this.asteroids = this.asteroids.filter(a => a !== target);
+    if (group && this.asteroids.some(a => a.group === group)) {
+      const other = this.asteroids.find(a => a.group === group);
+      this.lastJudgement = `one hand — now POP ${padLabel(other.note)}`;
+      return true;
+    }
+    const previousBest = this.bestCombo;
     this.score++;
     this.combo++;
     this.bestCombo = Math.max(this.bestCombo, this.combo);
+    if (Math.floor(previousBest / 24) < Math.floor(this.bestCombo / 24)) {
+      this.asteroids = [];
+      this.nextFreeSeq = 0;
+      this.nextFreeTargetMs = nowMs + this.freeBeatMs();
+    }
     this.updateLevel();
-    const label = Array.isArray(target.note) ? padLabel(target.note) : (BY_TRD_NOTE.get(note)?.label || note);
+    const label = group ? "Left+Right POP" : (BY_TRD_NOTE.get(note)?.label || note);
     let feel = perfectBeat ? "PERFECT BEAT BLAST" : "on the beat";
     if (dt < -FREE_EARLY_MS) feel = "early blast — next one on the pulse";
     else if (dt > FREE_LATE_MS) feel = "late blast — try the next pulse";
