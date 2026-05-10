@@ -20,6 +20,7 @@ const FREE_EARLY_MS = 360;
 const FREE_LATE_MS = 420;
 const FREE_SWEET_MS = 110;
 const REFIRE_COOLDOWN_MS = 170;
+const LASER_TTL_MS = 80;
 const ASTEROID_COLORS = [24, 26, 34, 37, 45, 39, 31, 35, 36];
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
@@ -231,7 +232,7 @@ export class SpaceshipAsteroidsSim {
       }
     }
     this.asteroids = survivors;
-    this.lasers = this.lasers.filter(l => nowMs - l.at < 180);
+    this.lasers = this.lasers.filter(l => nowMs - l.at < LASER_TTL_MS);
     this.explosions = this.explosions.filter(e => nowMs - e.at < e.ttl);
   }
   update(nowMs) {
@@ -254,7 +255,7 @@ export class SpaceshipAsteroidsSim {
       else survivors.push(a);
     }
     this.asteroids = survivors;
-    this.lasers = this.lasers.filter(l => nowMs - l.at < 180);
+    this.lasers = this.lasers.filter(l => nowMs - l.at < LASER_TTL_MS);
     this.explosions = this.explosions.filter(e => nowMs - e.at < e.ttl);
   }
 
@@ -295,6 +296,8 @@ export class SpaceshipAsteroidsSim {
     const color = padColor(note);
     const lastShotMs = this.lastShotByNote.get(note);
     if (lastShotMs != null && nowMs - lastShotMs < REFIRE_COOLDOWN_MS) {
+      this.lasers = this.lasers.filter(l => l.note !== note);
+      if (this.aimUntilMs > nowMs) this.aimUntilMs = nowMs;
       this.lastJudgement = "cooldown — wait for the next asteroid";
       return false;
     }
@@ -499,7 +502,7 @@ export class SpaceshipAsteroidsSim {
   drawLasers(px, nowMs) {
     for (const l of this.lasers) {
       const age = nowMs - l.at;
-      const a = 1 - age / 180;
+      const a = 1 - age / LASER_TTL_MS;
       const startX = SHIP_X + 7;
       const startY = SHIP_Y + clamp(Math.round((l.targetY - SHIP_Y) / 3), -5, 5);
       const endX = l.targetX;
